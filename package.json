@@ -1,0 +1,76 @@
+{
+  "name": "local-copilot",
+  "displayName": "Local Copilot",
+  "description": "A VS Code chat sidebar powered by local Ollama models.",
+  "version": "0.1.0",
+  "publisher": "local-copilot",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:localCopilot.chat"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "localCopilot",
+          "title": "Local Copilot",
+          "icon": "resources/copilot.svg"
+        }
+      ]
+    },
+    "views": {
+      "localCopilot": [
+        {
+          "id": "localCopilot.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Local Copilot",
+      "properties": {
+        "localCopilot.ollamaBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Base URL for the local Ollama HTTP API."
+        },
+        "localCopilot.defaultModel": {
+          "type": "string",
+          "default": "qwen2.5-coder:7b",
+          "description": "Chat model selected when the chat view opens."
+        },
+        "localCopilot.codeModel": {
+          "type": "string",
+          "default": "qwen2.5-coder:14b",
+          "description": "Larger coding model used by /code. It must support Ollama tool calling."
+        },
+        "localCopilot.requestTimeoutMs": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 1000,
+          "description": "Maximum time to wait for an Ollama request."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "test": "npm run compile && tsc -p tsconfig.test.json && node --test \"out-test/test/*.test.js\"",
+    "package": "npx --yes @vscode/vsce@3.9.2 package --allow-missing-repository",
+    "handoff": "node out/cli/handoff.js",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.5"
+  }
+}
