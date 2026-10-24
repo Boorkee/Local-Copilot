@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "out-test",
+    "rootDir": ".",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/agent.ts",
+    "src/chatViewHtml.ts",
+    "src/cli/args.ts",
+    "src/editorActions.ts",
+    "src/editorRange.ts",
+    "src/ollamaClient.ts",
+    "src/orchestrator.ts",
+    "src/workspaceTools.ts",
+    "test/**/*.test.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "out",
+    "out-test"
+  ]
+}
