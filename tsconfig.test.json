@@ -9,6 +9,7 @@
   },
   "include": [
     "src/agent.ts",
+    "src/changeReview.ts",
     "src/chatViewHtml.ts",
     "src/cli/args.ts",
     "src/editorActions.ts",

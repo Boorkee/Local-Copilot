@@ -26,6 +26,12 @@ GitHub Actions runs the compile and unit-test suite on Windows, macOS, and Linux
 
 When changing models, the extension checks Ollama's loaded-model list and sends an empty `/api/generate` request with `keep_alive: 0` for each loaded model before it starts the selected model. This releases the previous model from VRAM rather than relying on Ollama's keep-alive timeout.
 
+## Automatic delegation and change review
+
+In normal chat the chat model decides for itself whether to hand work to the code model. It is given a `delegate_coding_task` tool and writes the task plus any context it needs; the extension also forwards the recent conversation. The chat model is then unloaded, the code model runs, and the chat model is reloaded with the report. Turn this off with `localCopilot.autoDelegate`. Auto-delegation needs a chat model that supports tool calling (small models such as 1.5B may not call it reliably; `qwen2.5:3b` did in testing). Models without tool support fall back to plain chat, and `/code` always works.
+
+Before the code model writes a file, a diff opens (like Copilot) and a prompt offers **Keep** or **Keep All** (for the rest of that task). Cancelling or closing the prompt undoes the change: nothing is written and the model is told it was rejected. Deleting always asks. Disable write review with `localCopilot.reviewChanges`. The `npm run handoff` script writes without review.
+
 ## Delegating coding tasks (chat model → code model → chat model)
 
 Type `/code <task>` in the sidebar, or run the standalone script:

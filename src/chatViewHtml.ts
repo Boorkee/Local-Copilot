@@ -10,17 +10,25 @@ export function createChatViewHtml(): string {
 	<title>Local Copilot</title>
 	<style>
 		:root { color-scheme: light dark; }
-		body { padding: 0 12px 12px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
-		.row { display: flex; gap: 6px; margin: 10px 0; }
-		select, textarea { box-sizing: border-box; width: 100%; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 6px; }
-		button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 6px 10px; cursor: pointer; }
-		button:hover { background: var(--vscode-button-hoverBackground); }
-		#messages { display: flex; flex-direction: column; gap: 10px; max-height: 45vh; overflow-y: auto; }
+		html, body { height: 100%; }
+		body { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0 12px 12px; overflow: hidden; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+		.row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; flex: none; }
+		.row select { flex: 1 1 0; min-width: 0; }
+		.row button { flex: 1 1 auto; }
+		select, textarea { box-sizing: border-box; width: 100%; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); font-family: inherit; font-size: inherit; padding: 6px; }
+		select:focus, textarea:focus, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+		button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 6px 10px; cursor: pointer; font-family: inherit; font-size: inherit; }
+		button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+		button:disabled { opacity: 0.5; cursor: default; }
+		#messages { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 60px; overflow-y: auto; }
+		#status, #error, p, textarea { flex: none; }
+		p { margin: 6px 0 0; color: var(--vscode-descriptionForeground); }
+		code { font-family: var(--vscode-editor-font-family, monospace); }
 		.message { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; background: var(--vscode-editor-inactiveSelectionBackground); }
 		.role { font-weight: 600; margin-bottom: 4px; }
 		#status { min-height: 1.4em; color: var(--vscode-descriptionForeground); }
 		#error { color: var(--vscode-errorForeground); white-space: pre-wrap; }
-		textarea { resize: vertical; min-height: 80px; }
+		textarea { resize: none; height: 80px; min-height: 60px; }
 	</style>
 </head>
 <body>
@@ -103,7 +111,7 @@ export function createChatViewHtml(): string {
 				});
 			} else {
 				statusElement.textContent = 'Sending…';
-				vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, prompt, history: [...history] });
+				vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt, history: [...history] });
 			}
 			pendingPrompt = prompt;
 			promptInput.value = '';
@@ -138,8 +146,10 @@ export function createChatViewHtml(): string {
 				if (message.historyAdditions) {
 					history.push(...message.historyAdditions);
 				} else {
-					latestResponse = message.content;
 					history.push({ role: 'user', content: pendingPrompt }, { role: 'assistant', content: message.content });
+				}
+				if (!message.delegated) {
+					latestResponse = message.content;
 					applyButton.disabled = false;
 				}
 				pendingPrompt = undefined;
