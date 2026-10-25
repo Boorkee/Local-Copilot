@@ -29,7 +29,36 @@
       "localCopilot": [
         {
           "id": "localCopilot.chat",
-          "name": "Chat"
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "localCopilot.newChat",
+        "title": "New Chat",
+        "category": "Local Copilot",
+        "icon": "$(add)"
+      },
+      {
+        "command": "localCopilot.showChats",
+        "title": "Show Chats",
+        "category": "Local Copilot",
+        "icon": "$(history)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "localCopilot.newChat",
+          "when": "view == localCopilot.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "localCopilot.showChats",
+          "when": "view == localCopilot.chat",
+          "group": "navigation@2"
         }
       ]
     },
@@ -73,7 +102,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "test": "npm run compile && tsc -p tsconfig.test.json && node --test \"out-test/test/*.test.js\"",
+    "test": "npm run compile && tsc -p tsconfig.test.json && node scripts/run-tests.js",
     "package": "npx --yes @vscode/vsce@3.9.2 package --allow-missing-repository",
     "handoff": "node out/cli/handoff.js",
     "watch": "tsc -watch -p ./"

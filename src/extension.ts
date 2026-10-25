@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ReviewDecision, createChangeReviewer } from './changeReview';
 import { createChatViewHtml } from './chatViewHtml';
+import { Chat, ChatStore, TranscriptEntry } from './chatStore';
 import { replaceEditorText } from './editorActions';
 import { chatWithDelegation, delegateCodingTask } from './orchestrator';
 import { ChatMessage, OllamaClient } from './ollamaClient';
@@ -58,15 +59,25 @@ const unsavedDocuments: OpenDocuments = {
 type WebviewMessage =
 	| { type: 'ready' }
 	| { type: 'refreshModels' }
-	| { type: 'delegate'; chatModel: string; codeModel: string; task: string; history: ChatMessage[] }
-	| { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; history: ChatMessage[] }
-	| { type: 'applyCode'; code: string };
+	| { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
+	| { type: 'sendMessage'; model: string; codeModel?: string; prompt: string }
+	| { type: 'applyCode'; code: string }
+	| { type: 'copyCode'; code: string };
+
+type ChatTurn = { transcript: TranscriptEntry[]; history: ChatMessage[] };
+
+type ChatPickItem = vscode.QuickPickItem & { chatId: string };
 
 class ChatViewProvider implements vscode.WebviewViewProvider {
 	private view: vscode.WebviewView | undefined;
 	private client: OllamaClient;
+	private readonly store: ChatStore;
+	private busy = false;
+	private pending: { chatId: string; prompt: string } | undefined;
+	private status = '';
 
 	constructor(context: vscode.ExtensionContext) {
+		this.store = new ChatStore(context.globalState);
 		this.client = this.createClient();
 		vscode.workspace.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration('localCopilot.ollamaBaseUrl')
@@ -93,6 +104,44 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		});
 	}
 
+	newChat(): void {
+		this.store.create();
+		this.postState();
+		void vscode.commands.executeCommand('localCopilot.chat.focus');
+	}
+
+	showChats(): void {
+		const pick = vscode.window.createQuickPick<ChatPickItem>();
+		pick.title = 'Local Copilot chats';
+		pick.placeholder = 'Select a chat to open';
+		pick.matchOnDescription = true;
+		const refreshItems = () => {
+			pick.items = this.store.list().map(summary => ({
+				label: summary.title,
+				description: new Date(summary.updatedAt).toLocaleString(),
+				chatId: summary.id,
+				buttons: [{ iconPath: new vscode.ThemeIcon('trash'), tooltip: 'Delete chat' }]
+			}));
+		};
+		refreshItems();
+		pick.onDidTriggerItemButton(event => {
+			this.store.delete(event.item.chatId);
+			refreshItems();
+			this.postState();
+		});
+		pick.onDidAccept(() => {
+			const item = pick.selectedItems[0];
+			if (item) {
+				this.store.select(item.chatId);
+				this.postState();
+				void vscode.commands.executeCommand('localCopilot.chat.focus');
+			}
+			pick.hide();
+		});
+		pick.onDidHide(() => pick.dispose());
+		pick.show();
+	}
+
 	private createClient(): OllamaClient {
 		const configuration = vscode.workspace.getConfiguration('localCopilot');
 		return new OllamaClient(
@@ -101,10 +150,53 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		);
 	}
 
+	private postState(): void {
+		const chat = this.store.active();
+		if (this.view) {
+			this.view.description = chat.transcript.length ? chat.title : undefined;
+		}
+		const pending = this.busy && this.pending?.chatId === chat.id ? { prompt: this.pending.prompt } : undefined;
+		this.post({ type: 'state', chat, busy: this.busy, pending, status: this.status });
+	}
+
+	private setStatus(text: string): void {
+		this.status = text;
+		this.post({ type: 'status', text });
+	}
+
+	/** Runs one model turn against the open chat and saves it, even if the view is closed meanwhile. */
+	private async runTurn(prompt: string, work: (chat: Chat) => Promise<ChatTurn>): Promise<void> {
+		if (this.busy) {
+			this.post({ type: 'error', text: 'Wait for the current request to finish.', prompt });
+			return;
+		}
+		const chat = this.store.active();
+		this.busy = true;
+		this.pending = { chatId: chat.id, prompt };
+		this.setStatus('Thinking…');
+		let failure: string | undefined;
+		try {
+			const turn = await work(chat);
+			this.store.appendTurn(chat.id, turn.transcript, turn.history);
+		} catch (error) {
+			failure = error instanceof Error ? error.message : String(error);
+		}
+		this.busy = false;
+		this.pending = undefined;
+		this.status = '';
+		this.postState();
+		if (failure !== undefined) {
+			this.post({ type: 'error', text: failure, prompt });
+		}
+	}
+
 	private async handleMessage(message: WebviewMessage): Promise<void> {
 		try {
 			switch (message.type) {
 				case 'ready':
+					this.postState();
+					await this.refreshModels();
+					break;
 				case 'refreshModels':
 					await this.refreshModels();
 					break;
@@ -113,21 +205,28 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 					if (!prompt || !message.model.trim()) {
 						throw new Error('Choose a model and enter a message before sending.');
 					}
-					this.post({ type: 'status', text: 'Thinking…' });
 					const configuration = vscode.workspace.getConfiguration('localCopilot');
 					const codeModel = message.codeModel?.trim();
 					const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 					const canDelegate = configuration.get<boolean>('autoDelegate', true) && Boolean(codeModel) && Boolean(root);
-					const result = await chatWithDelegation({
-						client: this.client,
-						chatModel: message.model.trim(),
-						codeModel: codeModel ?? '',
-						prompt,
-						history: message.history,
-						createTools: canDelegate && root ? () => this.createTools(root) : undefined,
-						onProgress: text => this.post({ type: 'status', text })
+					await this.runTurn(prompt, async chat => {
+						const result = await chatWithDelegation({
+							client: this.client,
+							chatModel: message.model.trim(),
+							codeModel: codeModel ?? '',
+							prompt,
+							history: [...chat.history],
+							createTools: canDelegate && root ? () => this.createTools(root) : undefined,
+							onProgress: text => this.setStatus(text)
+						});
+						return {
+							transcript: [
+								{ role: 'user', content: prompt },
+								{ role: 'assistant', content: result.content, changes: result.changes.length ? result.changes : undefined }
+							],
+							history: result.historyAdditions
+						};
 					});
-					this.post({ type: 'response', content: result.content, historyAdditions: result.historyAdditions, delegated: result.delegated });
 					break;
 				}
 				case 'delegate': {
@@ -141,25 +240,37 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 					if (!task || !chatModel || !codeModel) {
 						throw new Error('Choose a chat model and a code model, and describe the task.');
 					}
-					const result = await delegateCodingTask({
-						client: this.client,
-						chatModel,
-						codeModel,
-						task,
-						history: message.history,
-						tools: this.createTools(root),
-						onProgress: text => this.post({ type: 'status', text })
+					await this.runTurn(message.prompt, async chat => {
+						const result = await delegateCodingTask({
+							client: this.client,
+							chatModel,
+							codeModel,
+							task,
+							history: [...chat.history],
+							tools: this.createTools(root),
+							onProgress: text => this.setStatus(text)
+						});
+						return {
+							transcript: [
+								{ role: 'user', content: message.prompt },
+								{ role: 'assistant', content: result.update, changes: result.changes.length ? result.changes : undefined }
+							],
+							history: result.historyAdditions
+						};
 					});
-					this.post({ type: 'response', content: result.update, historyAdditions: result.historyAdditions, delegated: true });
 					break;
 				}
 				case 'applyCode':
 					await this.applyToActiveEditor(message.code);
 					break;
+				case 'copyCode':
+					await vscode.env.clipboard.writeText(message.code);
+					this.setStatus('Copied to the clipboard.');
+					break;
 			}
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			this.post({ type: 'error', text: detail });
+			this.post({ type: 'error', text: detail, prompt: 'prompt' in message ? message.prompt : undefined });
 		}
 	}
 
@@ -227,7 +338,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			(range, text) => editor.edit(editBuilder => editBuilder.replace(range, text)),
 			code
 		);
-		this.post({ type: 'status', text: 'Response applied to the active editor.' });
+		this.setStatus('Response applied to the active editor.');
 	}
 
 	private post(message: Record<string, unknown>): void {
@@ -242,7 +353,9 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, proposedContent),
 		vscode.window.registerWebviewViewProvider('localCopilot.chat', provider, {
 			webviewOptions: { retainContextWhenHidden: true }
-		})
+		}),
+		vscode.commands.registerCommand('localCopilot.newChat', () => provider.newChat()),
+		vscode.commands.registerCommand('localCopilot.showChats', () => provider.showChats())
 	);
 }
 
