@@ -51,6 +51,16 @@
           "default": "qwen2.5-coder:14b",
           "description": "Larger coding model used by /code. It must support Ollama tool calling."
         },
+        "localCopilot.autoDelegate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the chat model decide on its own to hand coding tasks to the code model. Requires a chat model with tool-calling support; /code always works."
+        },
+        "localCopilot.reviewChanges": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a diff and ask for approval before the code model writes a file. Deleting a file always asks."
+        },
         "localCopilot.requestTimeoutMs": {
           "type": "number",
           "default": 300000,

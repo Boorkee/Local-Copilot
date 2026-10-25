@@ -53,6 +53,18 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /history\.push\(\.\.\.message\.historyAdditions\)/);
 	});
 
+	it('follows the VS Code theme and fills the resizable view', () => {
+		const html = createChatViewHtml();
+
+		assert.match(html, /var\(--vscode-sideBar-background\)/);
+		assert.match(html, /var\(--vscode-foreground\)/);
+		assert.match(html, /var\(--vscode-font-family\)/);
+		assert.match(html, /body \{[^}]*display: flex; flex-direction: column/);
+		assert.match(html, /#messages \{[^}]*flex: 1 1 auto/);
+		assert.doesNotMatch(html, /max-height: 45vh/);
+		assert.doesNotMatch(html, /#[0-9a-fA-F]{3,6}\b/);
+	});
+
 	it('emits a webview script that parses as valid JavaScript', () => {
 		const html = createChatViewHtml();
 		const script = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/)?.[1];

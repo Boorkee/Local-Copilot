@@ -7,8 +7,25 @@ export type FileChange = {
 	path: string;
 };
 
+export type WriteProposal = {
+	path: string;
+	before: string | undefined;
+	after: string;
+};
+
+export type OpenDocuments = {
+	/** Returns the unsaved text of a file that has unsaved edits in an editor, otherwise undefined. */
+	readUnsaved(absolutePath: string): string | undefined;
+	/** Replaces the text of an editor with unsaved edits without saving; returns false if the file has none. */
+	writeUnsaved(absolutePath: string, content: string): Promise<boolean>;
+};
+
 export type WorkspaceToolsOptions = {
 	confirmDelete?: (relativePath: string) => Promise<boolean>;
+	/** When set, every write must be approved before it touches disk. */
+	confirmWrite?: (proposal: WriteProposal) => Promise<boolean>;
+	/** Lets the tools see and update unsaved editor buffers instead of clobbering them on disk. */
+	openDocuments?: OpenDocuments;
 };
 
 const MAX_READ_BYTES = 200_000;
@@ -129,6 +146,10 @@ export class WorkspaceTools {
 
 	async readFile(file: string): Promise<string> {
 		const { absolute } = await this.resolve(file);
+		const unsaved = this.options.openDocuments?.readUnsaved(absolute);
+		if (unsaved !== undefined) {
+			return unsaved;
+		}
 		const stat = await fs.stat(absolute);
 		if (!stat.isFile()) {
 			throw new Error(`${file} is not a file.`);
@@ -141,9 +162,28 @@ export class WorkspaceTools {
 
 	async writeFile(file: string, content: string): Promise<string> {
 		const { absolute, rootReal } = await this.resolve(file, true);
-		await fs.mkdir(path.dirname(absolute), { recursive: true });
-		await fs.writeFile(absolute, content, 'utf8');
 		const relative = this.display(rootReal, absolute);
+		if (this.options.confirmWrite) {
+			let before: string | undefined = this.options.openDocuments?.readUnsaved(absolute);
+			try {
+				const stat = await fs.stat(absolute);
+				if (!stat.isFile()) {
+					throw new Error(`${relative} is not a file.`);
+				}
+				before ??= stat.size <= MAX_READ_BYTES ? await fs.readFile(absolute, 'utf8') : '';
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+					throw error;
+				}
+			}
+			if (!(await this.options.confirmWrite({ path: relative, before, after: content }))) {
+				return `The user rejected the change to ${relative}; it was not written.`;
+			}
+		}
+		if (!(await this.options.openDocuments?.writeUnsaved(absolute, content))) {
+			await fs.mkdir(path.dirname(absolute), { recursive: true });
+			await fs.writeFile(absolute, content, 'utf8');
+		}
 		this.changes.push({ action: 'write', path: relative });
 		return `Wrote ${content.length} characters to ${relative}.`;
 	}
@@ -205,7 +245,7 @@ export class WorkspaceTools {
 			if (relative === '') {
 				throw new Error('The workspace root cannot be modified.');
 			}
-			if (relative.split(path.sep)[0] === '.git') {
+			if (relative.split(path.sep)[0].toLowerCase() === '.git') {
 				throw new Error('The .git directory cannot be modified.');
 			}
 		}
