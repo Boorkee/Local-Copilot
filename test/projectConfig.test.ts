@@ -11,11 +11,15 @@ describe('extension project configuration', () => {
 		assert.equal(manifest.main, './out/extension.js');
 		const contributes = manifest.contributes as {
 			viewsContainers: { activitybar: Array<{ id: string }> };
-			views: Record<string, Array<{ id: string }>>;
+			views: Record<string, Array<{ id: string; type?: string }>>;
 			configuration: { properties: Record<string, { default: unknown }> };
 		};
 		assert.ok(contributes.viewsContainers.activitybar.some(container => container.id === 'localCopilot'));
 		assert.ok(contributes.views.localCopilot.some(view => view.id === 'localCopilot.chat'));
+		const commands = (contributes as unknown as { commands: Array<{ command: string }> }).commands.map(entry => entry.command);
+		assert.ok(commands.includes('localCopilot.newChat') && commands.includes('localCopilot.showChats'));
+		// Without type "webview" VS Code treats the view as a tree view and reports "no data provider registered".
+		assert.equal(contributes.views.localCopilot.find(view => view.id === 'localCopilot.chat')?.type, 'webview');
 		assert.equal(contributes.configuration.properties['localCopilot.ollamaBaseUrl'].default, 'http://127.0.0.1:11434');
 		assert.equal(contributes.configuration.properties['localCopilot.defaultModel'].default, 'qwen2.5-coder:7b');
 		assert.equal(contributes.configuration.properties['localCopilot.requestTimeoutMs'].default, 300000);
@@ -26,7 +30,7 @@ describe('extension project configuration', () => {
 		const scripts = manifest.scripts as Record<string, string>;
 		assert.match(scripts.compile, /tsc -p/);
 		assert.match(scripts.test, /npm run compile/);
-		assert.match(scripts.test, /node --test/);
+		assert.match(scripts.test, /run-tests\.js/);
 		assert.equal((readJson('tsconfig.json').compilerOptions as { outDir: string }).outDir, 'out');
 		assert.equal((readJson('tsconfig.test.json').compilerOptions as { outDir: string }).outDir, 'out-test');
 	});

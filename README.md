@@ -20,7 +20,11 @@ The default model is `qwen2.5-coder:7b`. The model picker is populated from Olla
 
 Run `npm test` to compile the extension and execute the unit tests. The tests cover Ollama requests and model unloading, sidebar HTML/CSP, editor replacement range selection, extension metadata, debug configuration, and the activity-bar icon.
 
-GitHub Actions runs the compile and unit-test suite on Windows, macOS, and Linux for pushes and pull requests. Pushing a `v*` tag also builds a VSIX and attaches it to a GitHub Release.
+GitHub Actions runs the compile and unit-test suite on Windows, macOS, and Linux with Node 20 and 24 for pushes and pull requests. Pushing a `v*` tag also builds a VSIX and attaches it to a GitHub Release.
+
+## Saved chats
+
+Chats are saved automatically and survive moving the view, reloading, and restarting VS Code. Use the **New Chat** (+) and **Chat History** buttons in the view's title bar to start a chat or switch between saved chats; the history picker also lets you delete chats. The chat and code model pickers sit below the input box.
 
 ## Model memory management
 
