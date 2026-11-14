@@ -1,4 +1,4 @@
-export function createChatViewHtml(): string {
+export function createChatViewHtml(effectsUri?: string): string {
 	const nonce = getNonce();
 	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
 	return `<!DOCTYPE html>
@@ -57,9 +57,55 @@ export function createChatViewHtml(): string {
 		button.link:hover { background: var(--vscode-toolbar-hoverBackground); }
 		select:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 		button:disabled { opacity: 0.5; cursor: default; }
+
+        .brand { display:flex; align-items:center; gap:10px; padding:18px 16px; border-bottom:1px solid var(--vscode-widget-border, transparent); flex:none; }
+        .brand-mark { display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--vscode-focusBorder); border-radius:10px; color:var(--vscode-textLink-foreground); font-weight:700; letter-spacing:-1px; }
+        .brand strong { display:block; font-size:13px; letter-spacing:0.2px; }
+        .brand div > span { display:block; margin-top:3px; font-size:8px; letter-spacing:1.6px; color:var(--vscode-descriptionForeground); }
+        .local-badge { margin-left:auto; padding:3px 6px; border:1px solid var(--vscode-widget-border, transparent); border-radius:5px; font-size:8px; letter-spacing:1px; color:var(--vscode-descriptionForeground); }
+        #messages { padding:22px 16px; gap:22px; }
+        .message.user { padding:12px 14px; border-radius:12px; }
+        .message .head { margin-bottom:9px; gap:8px; }
+        .empty { padding:12px 0; max-width:340px; text-align:left; }
+        .empty > svg { width:32px; height:32px; color:var(--vscode-textLink-foreground); margin-bottom:18px; }
+        .empty .title { font-size:20px; letter-spacing:-0.5px; }
+        .empty p { font-size:12px; line-height:1.7; margin-top:9px; }
+        .suggestions { display:flex; flex-direction:column; gap:8px; margin-top:24px; }
+        .suggestions button { text-align:left; justify-content:flex-start; padding:10px 12px; border:1px solid var(--vscode-widget-border, var(--vscode-input-border, transparent)); border-radius:8px; background:var(--vscode-input-background); color:var(--vscode-foreground); font-size:11px; }
+        .suggestions button:hover { border-color:var(--vscode-focusBorder); }
+        #effects { flex:none; padding:0 12px 12px; }
+        .activity { display:flex; align-items:center; gap:8px; min-height:28px; margin:0 4px 8px; color:var(--vscode-descriptionForeground); font-size:11px; }
+        .activity span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+        .ready-dot { width:6px; height:6px; border-radius:50%; background:var(--vscode-textLink-foreground); }
+        .mode-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+        .mode-switch { position:relative; display:flex; padding:3px; border-radius:20px; background:var(--vscode-input-background); border:1px solid var(--vscode-widget-border, transparent); }
+        .mode-liquid { position:absolute !important; inset:3px; pointer-events:none; }
+        .mode-blob { width:76px; height:28px; border-radius:16px; }
+        button.mode { position:relative; z-index:1; width:76px; height:28px; border:0; border-radius:16px; background:transparent; color:var(--vscode-descriptionForeground); font-size:11px; }
+        button.mode[aria-pressed="true"] { color:var(--vscode-button-foreground); }
+        button.mode.plain[aria-pressed="true"] { background:var(--vscode-button-background); }
+        .mode-caption { margin-left:auto; color:var(--vscode-descriptionForeground); font-size:9px; text-align:right; }
+        .composer-beam, .composer-voice, .composer-slot { display:block; width:100%; min-width:0; border-radius:12px; }
+        .composer-slot .composer { margin:0; border-radius:12px; }
+        textarea { min-height:72px; padding:14px 12px 8px; line-height:1.6; }
+        .toolbar { gap:6px; padding:8px; border-top:1px solid var(--vscode-widget-border, transparent); }
+        .pick { flex:1 1 90px; }
+        select { width:100%; max-width:140px; }
+        button.send { width:30px; height:28px; border-radius:8px; }
+        button.icon { width:28px; height:28px; }
+        .input-hint { text-align:center; color:var(--vscode-descriptionForeground); font-size:9px; margin-top:9px; }
+        .input-hint span { padding:0 5px; }
+        .voice-panel { padding:12px; margin-bottom:12px; border:1px solid var(--vscode-widget-border, transparent); border-radius:10px; background:var(--vscode-input-background); }
+        .voice-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:600; }
+        .record { border:1px solid var(--vscode-focusBorder); border-radius:6px; padding:5px 8px; background:transparent; color:var(--vscode-textLink-foreground); font-size:11px; }
+        .voice-panel p { font-size:11px; color:var(--vscode-descriptionForeground); margin:8px 0 0; }
+        button:focus-visible, select:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
+        @media (max-width:280px) { .mode-caption, .local-badge { display:none; } .brand { padding:12px; } }
+        @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
 	</style>
 </head>
 <body>
+	<header class="brand"><span class="brand-mark">LC</span><div><strong>Local Copilot</strong><span>THINK · BUILD · ITERATE</span></div><span class="local-badge">OLLAMA</span></header>
 	<div id="messages" aria-live="polite"></div>
 	<div id="status" role="status"></div>
 	<div id="error" role="alert"></div>
@@ -73,8 +119,15 @@ export function createChatViewHtml(): string {
 			<button id="send" class="send" type="button" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2z"/></svg></button>
 		</div>
 	</div>
+	<div id="effects"></div>
 	<script nonce="${nonce}">
 		const vscode = acquireVsCodeApi();
+		window.copilot = { post: message => vscode.postMessage(message), busy: false, recording: false, status: '' };
+		function updateEffects() {
+			window.copilot.busy = busy;
+			window.copilot.status = statusElement.textContent;
+			window.dispatchEvent(new Event('copilot-state'));
+		}
 		const modelSelect = document.getElementById('model');
 		const codeModelSelect = document.getElementById('codeModel');
 		const promptInput = document.getElementById('prompt');
@@ -225,10 +278,18 @@ export function createChatViewHtml(): string {
 			empty.className = 'empty';
 			const title = document.createElement('div');
 			title.className = 'title';
-			title.textContent = 'Local Copilot';
+			title.textContent = 'What are we building?';
 			const hint = document.createElement('p');
-			hint.textContent = 'Chat with a local Ollama model. Coding tasks are handed to the code model automatically, or start a message with /code.';
-			empty.append(sparkle(), title, hint);
+			hint.textContent = 'A focused space to think through ideas, understand your code, and build with local models.';
+			const suggestions = document.createElement('div');
+			suggestions.className = 'suggestions';
+			for (const label of ['Explain a piece of code', '/code Help me improve this project']) {
+				const button = document.createElement('button');
+				button.textContent = label;
+				button.addEventListener('click', () => { promptInput.value = label + ' '; promptInput.dispatchEvent(new Event('input')); promptInput.focus(); });
+				suggestions.append(button);
+			}
+			empty.append(sparkle(), title, hint, suggestions);
 			messagesElement.append(empty);
 		}
 
@@ -242,13 +303,17 @@ export function createChatViewHtml(): string {
 				addMessage('user', pending.prompt, undefined, false);
 				addMessage('assistant', '', undefined, true);
 			}
-			sendButton.disabled = busy;
+			sendButton.disabled = busy || window.copilot.recording || !promptInput.value.trim();
+			modelSelect.disabled = busy;
+			codeModelSelect.disabled = busy;
+			updateEffects();
 			messagesElement.scrollTop = messagesElement.scrollHeight;
 		}
 
 		function setStatus(text) {
 			statusElement.textContent = text;
 			if (pendingElement && text) pendingElement.textContent = text;
+			updateEffects();
 		}
 
 		function fillModelSelect(select, models, defaultModel, remembered) {
@@ -270,7 +335,7 @@ export function createChatViewHtml(): string {
 		}
 
 		function rememberModels() {
-			vscode.setState({ model: modelSelect.value, codeModel: codeModelSelect.value });
+			vscode.setState({ ...vscode.getState(), model: modelSelect.value, codeModel: codeModelSelect.value });
 		}
 
 		function autosize() {
@@ -281,6 +346,7 @@ export function createChatViewHtml(): string {
 		function sendMessage() {
 			const prompt = promptInput.value.trim();
 			if (!prompt || busy) return;
+			if (window.copilot.recording) return;
 			errorElement.textContent = '';
 			busy = true;
 			pending = { prompt };
@@ -297,6 +363,7 @@ export function createChatViewHtml(): string {
 				vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt });
 			}
 			promptInput.value = '';
+			vscode.setState({ ...vscode.getState(), draft: '' });
 			autosize();
 			render();
 		}
@@ -305,9 +372,11 @@ export function createChatViewHtml(): string {
 		document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refreshModels' }));
 		modelSelect.addEventListener('change', rememberModels);
 		codeModelSelect.addEventListener('change', rememberModels);
-		promptInput.addEventListener('input', autosize);
+		promptInput.addEventListener('input', () => { autosize(); sendButton.disabled = busy || window.copilot.recording || !promptInput.value.trim(); vscode.setState({ ...vscode.getState(), draft: promptInput.value }); });
+		promptInput.value = savedState.draft || '';
+		autosize();
 		promptInput.addEventListener('keydown', event => {
-			if (event.key === 'Enter' && !event.shiftKey) {
+			if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 				event.preventDefault();
 				sendMessage();
 			}
@@ -343,6 +412,7 @@ export function createChatViewHtml(): string {
 		});
 		vscode.postMessage({ type: 'ready' });
 	</script>
+	${effectsUri ? `<script nonce="${nonce}" src="${escapeAttribute(effectsUri)}" defer></script>` : ''}
 </body>
 </html>`;
 }
@@ -354,4 +424,8 @@ function getNonce(): string {
 		nonce += possible.charAt(Math.floor(Math.random() * possible.length));
 	}
 	return nonce;
+}
+
+function escapeAttribute(value: string): string {
+	return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

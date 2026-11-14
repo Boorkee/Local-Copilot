@@ -101,15 +101,30 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run build:webview",
     "test": "npm run compile && tsc -p tsconfig.test.json && node scripts/run-tests.js",
     "package": "npx --yes @vscode/vsce@3.9.2 package --allow-missing-repository",
     "handoff": "node out/cli/handoff.js",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "build:webview": "tsc -p webview/tsconfig.json && node scripts/build-webview.js",
+    "watch:webview": "node scripts/build-webview.js --watch",
+    "test:webview": "npm run compile && playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^20.12.12",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/vscode": "^1.90.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "border-beam": "^1.4.1",
+    "liquid-gooey": "^0.2.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "thinking-orbs": "^0.3.2",
+    "voice-glow": "^0.3.0"
   }
 }

@@ -50,3 +50,17 @@ The chat model is unloaded, the code model runs with read/list/write/delete tool
 ## Applying a response
 
 Use **Apply to active editor** to write the latest response into the focused editor. It replaces the current selection; if there is no selection, it replaces the entire active document. The action is explicit, and the editor's normal undo history is preserved.
+
+## Polished input and local voice
+
+The sidebar bundles four [Libraries.dev](https://libraries.dev/) effects: Border Beam around the composer, Thinking Orbs while the agent works, Gooey for the Type/Speak selector, and Voice Glow driven by actual microphone levels. No other effect modules are included. Assets ship inside the extension, with no CDN requests. Effects follow the VS Code theme, pause when hidden, and respect reduced-motion preferences.
+
+Choose **Speak → Start listening** to dictate into the draft. Choose **Stop**, review or edit the text, then send it. Enter sends; Shift+Enter inserts a newline. Speech never automatically sends a message or executes a command. Drafts survive webview reloads.
+
+Voice input currently requires **Windows desktop VS Code running the extension locally**, Windows PowerShell, an installed Windows speech-recognition language pack, and microphone permission for desktop apps. It uses the default Windows input device and the system's local `System.Speech` recognizer; audio is not saved or sent to a transcription service. The voice glow reflects measured audio levels. Windows recognition accuracy depends on the installed recognizer, microphone, and speech language.
+
+VS Code webviews restrict direct microphone access, so a bundled native helper handles capture. Recording stops on Type mode, view hiding/disposal, chat switching, extension shutdown, or after two minutes. Startup failures and unsupported hosts display an actionable message. Linux, macOS, WSL, and remote extension hosts do not currently provide native dictation; typing remains available. This is speech-to-text input, not spoken replies.
+
+### UI development and checks
+
+`npm run compile` builds both the extension and its bundled React effects. Run `npm run watch` and `npm run watch:webview` in separate terminals while developing. Run `npm test` for unit and recorder lifecycle tests. For browser checks, run `npx playwright install chromium` once, then `npm run test:webview`. The browser harness mocks VS Code and microphone events; validate actual audio capture separately in Windows VS Code using the default microphone, including permission denial and hiding the sidebar while recording.

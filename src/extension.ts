@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { VoiceInput } from './voiceInput';
 import * as vscode from 'vscode';
 import { ReviewDecision, createChangeReviewer } from './changeReview';
 import { createChatViewHtml } from './chatViewHtml';
@@ -58,6 +59,8 @@ const unsavedDocuments: OpenDocuments = {
 
 type WebviewMessage =
 	| { type: 'ready' }
+	| { type: 'startVoice' }
+	| { type: 'stopVoice' }
 	| { type: 'refreshModels' }
 	| { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
 	| { type: 'sendMessage'; model: string; codeModel?: string; prompt: string }
@@ -75,8 +78,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	private busy = false;
 	private pending: { chatId: string; prompt: string } | undefined;
 	private status = '';
+	private readonly voice: VoiceInput;
+	private readonly extensionUri: vscode.Uri;
 
 	constructor(context: vscode.ExtensionContext) {
+		this.extensionUri = context.extensionUri;
+		this.voice = new VoiceInput(vscode.Uri.joinPath(context.extensionUri, 'resources', 'speech.ps1').fsPath, event => this.post(event));
+		context.subscriptions.push(this.voice);
 		this.store = new ChatStore(context.globalState);
 		this.client = this.createClient();
 		vscode.workspace.onDidChangeConfiguration(event => {
@@ -90,14 +98,19 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	resolveWebviewView(webviewView: vscode.WebviewView): void {
 		this.view = webviewView;
 		webviewView.webview.options = {
-			enableScripts: true
+			enableScripts: true,
+			localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'out')]
 		};
-		webviewView.webview.html = createChatViewHtml();
+		webviewView.webview.html = createChatViewHtml(webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'out', 'effects.js')).toString());
+		webviewView.onDidChangeVisibility(() => {
+			if (!webviewView.visible) this.voice.stop();
+		});
 		const messageSubscription = webviewView.webview.onDidReceiveMessage((message: WebviewMessage) => {
 			void this.handleMessage(message);
 		});
 		webviewView.onDidDispose(() => {
 			messageSubscription.dispose();
+			this.voice.stop();
 			if (this.view === webviewView) {
 				this.view = undefined;
 			}
@@ -105,6 +118,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	newChat(): void {
+		this.voice.stop();
 		this.store.create();
 		this.postState();
 		void vscode.commands.executeCommand('localCopilot.chat.focus');
@@ -132,6 +146,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		pick.onDidAccept(() => {
 			const item = pick.selectedItems[0];
 			if (item) {
+				this.voice.stop();
 				this.store.select(item.chatId);
 				this.postState();
 				void vscode.commands.executeCommand('localCopilot.chat.focus');
@@ -170,6 +185,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			this.post({ type: 'error', text: 'Wait for the current request to finish.', prompt });
 			return;
 		}
+		this.voice.stop();
 		const chat = this.store.active();
 		this.busy = true;
 		this.pending = { chatId: chat.id, prompt };
@@ -193,6 +209,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	private async handleMessage(message: WebviewMessage): Promise<void> {
 		try {
 			switch (message.type) {
+				case 'startVoice':
+					if (!this.busy && this.view?.visible) this.voice.start();
+					break;
+				case 'stopVoice':
+					this.voice.stop();
+					break;
 				case 'ready':
 					this.postState();
 					await this.refreshModels();

@@ -9,3 +9,7 @@ scripts/**
 **/*.map
 node_modules/**
 out-test/**
+webview/**
+playwright.config.cjs
+test-results/**
+playwright-report/**

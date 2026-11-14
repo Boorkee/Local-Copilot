@@ -38,8 +38,30 @@ jobs:
         run: npm ci
       - name: Audit dependencies
         run: npm audit
+      - name: Validate Windows speech helper
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./resources/speech.ps1 -ValidateOnly
       - name: Compile and run unit tests
         run: npm test
+
+  webview:
+    name: Browser UI checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:webview
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: webview-screenshots
+          path: test-results/
 
   release:
     name: Package VS Code extension
