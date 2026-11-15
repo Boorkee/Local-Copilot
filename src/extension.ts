@@ -128,11 +128,22 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 				label: summary.title,
 				description: new Date(summary.updatedAt).toLocaleString(),
 				chatId: summary.id,
-				buttons: [{ iconPath: new vscode.ThemeIcon('trash'), tooltip: 'Delete chat' }]
+				buttons: [
+                    { iconPath: new vscode.ThemeIcon('edit'), tooltip: 'Rename chat' },
+                    { iconPath: new vscode.ThemeIcon('trash'), tooltip: 'Delete chat' }
+                ]
 			}));
 		};
 		refreshItems();
-		pick.onDidTriggerItemButton(event => {
+		pick.onDidTriggerItemButton(async event => {
+			if (event.button.tooltip === 'Rename chat') {
+                const title = await vscode.window.showInputBox({ prompt: 'Rename conversation', value: event.item.label,
+                    validateInput: value => value.trim() ? undefined : 'Enter a conversation name.' });
+                if (title !== undefined) this.store.rename(event.item.chatId, title);
+                refreshItems();
+                this.postState();
+                return;
+            }
 			this.stopTask();
 			this.store.delete(event.item.chatId);
 			refreshItems();
@@ -212,6 +223,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.busy = true;
 		const taskId = randomUUID();
 		this.taskId = taskId;
+		this.store.beginTask(chat.id, taskId, prompt);
 		this.pending = { chatId: chat.id, prompt };
 		this.taskController = new AbortController();
         this.streamBuffer = '';
@@ -232,6 +244,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
             if (/does not support tools/i.test(failure)) failure += ' Choose a tool-capable Code model for Agent mode, or use Chat mode for this model.';
 		}
 		this.flushDelta(chat.id, taskId);
+		this.store.finishTask(chat.id, taskId);
 		const cancelled = this.taskController.signal.aborted;
 		this.reviews.cancel();
         this.taskController = undefined;

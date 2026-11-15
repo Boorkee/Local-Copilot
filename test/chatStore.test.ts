@@ -83,6 +83,40 @@ describe('ChatStore', () => {
 		assert.equal(reopened.list().length, 2);
 	});
 
+    it('renames chats while keeping the old transcript and model history', () => {
+        const store = new ChatStore(memoryStorage(), clock());
+        const chat = store.active();
+        store.appendTurn(chat.id, [{ role: 'user', content: 'Original title' }], [{ role: 'user', content: 'Original title' }]);
+        assert.equal(store.rename(chat.id, '  Better   project name  '), true);
+        assert.equal(store.get(chat.id)?.title, 'Better project name');
+        assert.equal(store.get(chat.id)?.history.length, 1);
+        assert.equal(store.rename(chat.id, '  '), false);
+        assert.equal(store.rename('missing', 'new'), false);
+    });
+
+    it('recovers interrupted work without silently resuming it', () => {
+        const storage = memoryStorage();
+        const first = new ChatStore(storage, clock());
+        const chat = first.active();
+        first.beginTask(chat.id, 'task-1', 'refactor the API');
+        const reopened = new ChatStore(storage, clock());
+        const history = reopened.get(chat.id)!;
+        assert.equal(history.transcript[0].content, 'refactor the API');
+        assert.match(history.transcript[1].content, /interrupted/);
+        assert.equal(history.inFlight, undefined);
+        assert.equal(new ChatStore(storage, clock()).get(chat.id)?.transcript.length, 2);
+    });
+
+    it('only completes the matching task identifier', () => {
+        const store = new ChatStore(memoryStorage(), clock());
+        const chat = store.active();
+        store.beginTask(chat.id, 'first', 'task');
+        store.finishTask(chat.id, 'stale');
+        assert.equal(chat.inFlight?.id, 'first');
+        store.finishTask(chat.id, 'first');
+        assert.equal(chat.inFlight, undefined);
+    });
+
 	it('deleting the open chat opens the most recent remaining one, or a fresh chat when none are left', () => {
 		const store = new ChatStore(memoryStorage(), clock());
 		const a = store.active();

@@ -18,6 +18,8 @@ export type Chat = {
 	history: ChatMessage[];
 	/** Messages shown to the user. */
 	transcript: TranscriptEntry[];
+    /** Stored before model activity so unexpected restarts can be explained on next launch. */
+    inFlight?: { id: string; prompt: string; startedAt: number };
 };
 
 export type ChatSummary = Pick<Chat, 'id' | 'title' | 'updatedAt'>;
@@ -47,6 +49,22 @@ export class ChatStore {
 		const saved = storage.get<Chat[]>(CHATS_KEY);
 		this.chats = Array.isArray(saved) ? saved.filter(ChatStore.isChat) : [];
 		this.activeId = storage.get<string>(ACTIVE_KEY);
+        let recovered = false;
+        for (const chat of this.chats) {
+            if (!chat.inFlight) continue;
+            if (typeof chat.inFlight.prompt !== 'string' || typeof chat.inFlight.id !== 'string') {
+                delete chat.inFlight;
+                recovered = true;
+                continue;
+            }
+            const summary = 'Previous task was interrupted when VS Code closed. It was not resumed automatically; previously approved changes may remain.';
+            chat.transcript.push({ role: 'user', content: chat.inFlight.prompt }, { role: 'assistant', content: summary });
+            chat.history.push({ role: 'user', content: chat.inFlight.prompt }, { role: 'assistant', content: summary });
+            chat.updatedAt = this.now();
+            delete chat.inFlight;
+            recovered = true;
+        }
+        if (recovered) this.persist();
 	}
 
 	private static isChat(value: unknown): value is Chat {
@@ -79,10 +97,34 @@ export class ChatStore {
 		return chat;
 	}
 
+    rename(id: string, title: string): boolean {
+        const chat = this.get(id);
+        const clean = title.replace(/\s+/g, ' ').trim();
+        if (!chat || !clean) return false;
+        chat.title = makeTitle(clean);
+        chat.updatedAt = this.now();
+        this.persist();
+        return true;
+    }
+
+    beginTask(id: string, taskId: string, prompt: string): void {
+        const chat = this.get(id);
+        if (!chat) return;
+        chat.inFlight = { id: taskId, prompt, startedAt: this.now() };
+        this.persist();
+    }
+
+    finishTask(id: string, taskId: string): void {
+        const chat = this.get(id);
+        if (chat?.inFlight?.id !== taskId) return;
+        delete chat.inFlight;
+        this.persist();
+    }
+
 	/** Starts a new chat, reusing the open one if it is still empty. */
 	create(): Chat {
 		const current = this.activeId ? this.get(this.activeId) : undefined;
-		if (current && current.transcript.length === 0) {
+		if (current && current.transcript.length === 0 && !current.inFlight) {
 			return current;
 		}
 		const timestamp = this.now();
@@ -115,7 +157,7 @@ export class ChatStore {
 		if (!chat) {
 			return false;
 		}
-		if (chat.transcript.length === 0) {
+		if (chat.transcript.length === 0 && chat.title === 'New chat') {
 			const firstUser = transcript.find(entry => entry.role === 'user');
 			chat.title = makeTitle(firstUser?.content ?? '');
 		}
