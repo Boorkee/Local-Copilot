@@ -102,3 +102,26 @@ export function isRecoverableModelError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return /(?:Ollama request failed \((?:404|429|500|502|503|507)\)|model .*not found|does not support tools|out of memory|insufficient (?:memory|vram)|unable to load model)/i.test(message);
 }
+
+/** Retry only before text or tools are exposed; never replay approved side effects. */
+export async function runWithModelFallback<T>(
+    choice: ModelChoice,
+    signal: AbortSignal,
+    run: (model: string, markStarted: () => void) => Promise<T>,
+    onSelected: (model: string, reason: string) => void
+): Promise<{ result: T; model: string; reason: string }> {
+    for (const [index, model] of choice.candidates.entries()) {
+        signal.throwIfAborted();
+        let started = false;
+        const reason = index === 0 ? choice.reason : `Fallback from ${choice.candidates[index - 1]} after a model-load failure.`;
+        onSelected(model, reason);
+        try {
+            const result = await run(model, () => { started = true; });
+            return { result, model, reason };
+        } catch (error) {
+            if (signal.aborted || started || !choice.automatic || index === choice.candidates.length - 1 || !isRecoverableModelError(error))
+                throw error;
+        }
+    }
+    throw new Error('No Ollama model could complete this request.');
+}

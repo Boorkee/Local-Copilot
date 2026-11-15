@@ -10,6 +10,7 @@ import { Chat, ChatStore, TranscriptEntry } from './chatStore';
 import { replaceEditorText } from './editorActions';
 import { delegateCodingTask } from './orchestrator';
 import { ChatMessage, OllamaClient } from './ollamaClient';
+import { chooseModel, ModelCatalogEntry, runWithModelFallback } from './modelRouter';
 import { OpenDocuments, READ_ONLY_TOOLS, WorkspaceTools, WriteProposal } from './workspaceTools';
 import { HostEvent, parseWebviewMessage, WebviewMessage } from './protocol';
 
@@ -61,6 +62,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private connection: 'loading' | 'ready' | 'empty' | 'error' = 'loading';
     private connectionError = '';
     private modelRefresh = 0;
+    private modelCatalog: ModelCatalogEntry[] = [];
+    private modelRefreshPending?: Promise<void>;
     private readonly diffPreviews = new Map<string, { before: string; after: string }>();
     private attachments: Array<{ id: string; label: string; content: string }> = [];
 
@@ -82,7 +85,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			if (event.affectsConfiguration('localCopilot.ollamaBaseUrl')
 				|| event.affectsConfiguration('localCopilot.requestTimeoutMs')
                 || event.affectsConfiguration('localCopilot.modelResidency')) {
+				this.modelRefresh++;
+				this.modelCatalog = [];
 				this.client = this.createClient();
+				if (this.view) void this.refreshModels();
 			}
 		}, undefined, context.subscriptions);
 	}
@@ -361,7 +367,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 					break;
 				case 'sendMessage': {
 					const prompt = message.prompt.trim();
-					if (!prompt || !message.model.trim()) {
+					if (!prompt) {
 						throw new Error('Choose a model and enter a message before sending.');
 					}
 
@@ -372,29 +378,44 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                         throw new Error('Open and trust a workspace folder to use Agent mode, or select Chat for conversation only.');
                     }
                     const model = agentMode ? message.codeModel?.trim() : message.model.trim();
-                    if (!model) throw new Error('Select a code model with tool-calling support for Agent mode.');
-                    if (agentMode && this.client.cachedCapability(model) === 'chat')
-                        throw new Error(`${model} does not advertise Ollama tool support. Choose a tool-capable model for Agent or switch to Chat mode.`);
+                    if (!model) throw new Error('Select a model to continue.');
                     await this.runTurn(prompt, async chat => {
+                        this.setStatus('Choosing local model…');
+                        await (this.modelRefreshPending ?? (this.modelCatalog.length ? Promise.resolve() : this.refreshModels()));
+                        this.taskController!.signal.throwIfAborted();
+                        const choice = chooseModel({ selected: model, mode: message.mode ?? 'agent', prompt,
+                            hasAttachment: this.attachments.length > 0, historyCount: chat.history.length, catalog: this.modelCatalog });
+                        const taskId = this.taskId!;
+                        const signal = this.taskController!.signal;
+                        const client = this.client;
                         const attachmentLabels = this.attachments.map(item => item.label);
                         const effectivePrompt = prompt + this.takeAttachedContext();
                         const tools = agentMode ? this.createTools(root!, planMode) : undefined;
                         let content: string;
+                        let usedModel = { name: choice.model, label: choice.label, reason: choice.reason };
                         try {
-                            content = tools
-                                ? (await runAgent({ client: this.client, model, task: effectivePrompt, history: chat.history.slice(-20), tools,
-                                    mode: planMode ? 'plan' : 'act',
-                                    signal: this.taskController!.signal, onProgress: text => this.setStatus(text),
-                                    onDelta: text => this.addDelta(chat.id, this.taskId!, text),
-                                    onToolActivity: (stepId, tool, status) => this.recordTool(chat.id, this.taskId!, stepId, tool, status) })).summary
-                                : await this.client.chat(model, effectivePrompt, [...chat.history],
-                                    { signal: this.taskController!.signal, onDelta: text => this.addDelta(chat.id, this.taskId!, text) });
+                            const response = await runWithModelFallback(choice, signal, async (selectedModel, markStarted) => {
+                                return tools
+                                    ? (await runAgent({ client, model: selectedModel, task: effectivePrompt, history: chat.history.slice(-20), tools,
+                                        mode: planMode ? 'plan' : 'act', signal,
+                                        onProgress: text => this.setStatus(text),
+                                        onDelta: text => { markStarted(); this.addDelta(chat.id, taskId, text); },
+                                        onToolActivity: (stepId, tool, status) => { markStarted(); this.recordTool(chat.id, taskId, stepId, tool, status); } })).summary
+                                    : await client.chat(selectedModel, effectivePrompt, [...chat.history],
+                                        { signal, onDelta: text => { markStarted(); this.addDelta(chat.id, taskId, text); } });
+                            }, (name, reason) => {
+                                usedModel = { name, label: choice.label, reason };
+                                this.setStatus(`Loading ${name}…`);
+                                this.post({ type: 'modelSelected', taskId, sessionId: chat.id, model: usedModel });
+                            });
+                            content = response.result;
                         } catch (error) {
                             if (!tools?.changes.length) throw error;
                             content = `Task incomplete: ${error instanceof Error ? error.message : String(error)}. Previously kept file changes remain applied.`;
                         }
                         return {
-                            transcript: [{ role: 'user', content: prompt, attachments: attachmentLabels }, { role: 'assistant', content, changes: tools?.changes }],
+                            transcript: [{ role: 'user', content: prompt, attachments: attachmentLabels },
+                                { role: 'assistant', content, changes: tools?.changes, model: usedModel }],
                             history: [{ role: 'user', content: effectivePrompt }, { role: 'assistant', content }]
                         };
                     });
@@ -540,7 +561,14 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
 
-    private async refreshModels(): Promise<void> {
+    private refreshModels(): Promise<void> {
+        const pending = this.loadModels();
+        this.modelRefreshPending = pending;
+        void pending.finally(() => { if (this.modelRefreshPending === pending) this.modelRefreshPending = undefined; });
+        return pending;
+    }
+
+    private async loadModels(): Promise<void> {
         const refresh = ++this.modelRefresh;
         const client = this.client;
         this.connection = 'loading';
@@ -552,8 +580,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
             this.connection = models.length ? 'ready' : 'empty';
             this.connectionError = models.length ? '' : 'Ollama is connected but has no models. Pull a tool-capable coding model, then retry.';
             const names = models.map(model => model.name).filter(Boolean);
-            const defaultModel = vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'qwen2.5-coder:7b');
-            const defaultCodeModel = vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'qwen2.5-coder:14b');
+            this.modelCatalog = models.map(model => ({ ...model, capability: 'unknown' }));
+            const defaultModel = vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'auto:balanced');
+            const defaultCodeModel = vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'auto:balanced');
             this.post({ type: 'models', models: names, defaultModel, defaultCodeModel });
             this.post({ type: 'connection', state: this.connection, text: this.connectionError });
             const capabilities: Record<string, 'tools' | 'chat' | 'unknown'> = {};
@@ -564,9 +593,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     capabilities[name] = await client.inspectModel(name).catch(() => 'unknown' as const);
                 }
             }));
-            if (refresh === this.modelRefresh && client === this.client)
+            if (refresh === this.modelRefresh && client === this.client) {
+                this.modelCatalog = models.map(model => ({ ...model, capability: capabilities[model.name] ?? 'unknown' }));
                 this.post({ type: 'models', models: names, defaultModel, defaultCodeModel, capabilities });
+            }
         } catch (error) {
+            if (refresh !== this.modelRefresh || client !== this.client) return;
+            this.modelCatalog = [];
             this.connection = 'error';
             this.connectionError = error instanceof Error ? error.message : String(error);
             this.post({ type: 'connection', state: 'error', text: this.connectionError });

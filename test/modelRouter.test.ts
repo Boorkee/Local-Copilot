@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { chooseModel, isRecoverableModelError, parameterCount, taskComplexity } from '../src/modelRouter';
+import { chooseModel, isRecoverableModelError, parameterCount, runWithModelFallback, taskComplexity } from '../src/modelRouter';
 import type { ModelCatalogEntry } from '../src/modelRouter';
 
 const catalog: ModelCatalogEntry[] = [
@@ -66,5 +66,44 @@ describe('local model routing', () => {
         assert.equal(isRecoverableModelError(new Error('Ollama request failed (401): unauthorized')), false);
         assert.equal(isRecoverableModelError(new Error('User rejected a write')), false);
         assert.equal(isRecoverableModelError(new Error('Ollama request cancelled.')), false);
+    });
+
+    it('switches to another eligible installed model before output', async () => {
+        const attempts: string[] = [];
+        const selected: string[] = [];
+        const result = await runWithModelFallback(choose('auto:balanced', 'agent'), new AbortController().signal,
+            async model => {
+                attempts.push(model);
+                if (model === 'medium') throw new Error('Ollama request failed (503): model unavailable');
+                return 'finished';
+            }, (model, reason) => { selected.push(`${model}: ${reason}`); });
+        assert.deepEqual(attempts, ['medium', 'large']);
+        assert.match(result.reason, /Fallback from medium/);
+        assert.equal(result.result, 'finished');
+        assert.equal(selected.length, 2);
+    });
+
+    it('does not replay after streaming, tool activity, cancellation or manual choice', async () => {
+        for (const selected of ['auto:balanced', 'medium']) {
+            const attempts: string[] = [];
+            await assert.rejects(runWithModelFallback(choose(selected, 'agent'), new AbortController().signal,
+                async (model, markStarted) => {
+                    attempts.push(model);
+                    markStarted();
+                    throw new Error('Ollama request failed (503): model unavailable');
+                }, () => {}), /503/);
+            assert.deepEqual(attempts, ['medium']);
+        }
+        const aborted = new AbortController();
+        aborted.abort();
+        await assert.rejects(runWithModelFallback(choose('auto:balanced'), aborted.signal,
+            async () => 'never', () => {}), /aborted/);
+    });
+
+    it('does not retry unrelated tool errors or manual model failures', async () => {
+        let attempts = 0;
+        await assert.rejects(runWithModelFallback(choose('auto:balanced'), new AbortController().signal,
+            async () => { attempts++; throw new Error('Rejected by user'); }, () => {}), /Rejected/);
+        assert.equal(attempts, 1);
     });
 });

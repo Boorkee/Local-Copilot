@@ -28,6 +28,7 @@ export type HostEvent = VoiceEvent
         capabilities?: Record<string, 'tools' | 'chat' | 'unknown'> }
     | { type: 'attachments'; items: Array<{ id: string; label: string }> }
     | { type: 'taskStarted'; taskId: string; sessionId: string }
+    | { type: 'modelSelected'; taskId: string; sessionId: string; model: { name: string; label: string; reason: string } }
     | { type: 'assistantDelta'; taskId: string; sessionId: string; text: string }
     | { type: 'toolActivity'; taskId: string; sessionId: string; stepId: string; summary: string; status: 'started' | 'done' | 'failed' }
     | { type: 'taskFinished'; taskId: string; sessionId: string; status: TaskStatus };
