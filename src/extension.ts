@@ -237,7 +237,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 							chatModel: message.model.trim(),
 							codeModel: codeModel ?? '',
 							prompt,
-							history: [...chat.history],
+							history: chat.history,
 							createTools: canDelegate && root ? () => this.createTools(root) : undefined,
 							onProgress: text => this.setStatus(text)
 						});
@@ -268,7 +268,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 							chatModel,
 							codeModel,
 							task,
-							history: [...chat.history],
+							history: chat.history,
 							tools: this.createTools(root),
 							onProgress: text => this.setStatus(text)
 						});

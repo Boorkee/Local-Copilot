@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BorderBeam } from 'border-beam';
 import { ThinkingOrb } from 'thinking-orbs';
@@ -16,6 +16,7 @@ const prompt = document.querySelector<HTMLTextAreaElement>('#prompt')!;
 function Effects() {
     const slot = useRef<HTMLDivElement>(null);
     const level = useRef(0);
+    const getLevel = useCallback(() => level.current, []);
     const [busy, setBusy] = useState(window.copilot.busy);
     const [status, setStatus] = useState(window.copilot.status);
     const [mode, setMode] = useState<'type' | 'speak'>('type');
@@ -99,7 +100,7 @@ function Effects() {
             <p role={voice === 'error' ? 'alert' : 'status'}>{hint}</p>
         </div>}
         <BorderBeam className="composer-beam" size="sm" colorVariant="ocean" strength={busy ? 0.7 : 0.4} active={visible && !reduced} theme={dark ? 'dark' : 'light'}>
-            <VoiceBeam className="composer-voice" level={() => level.current} colorVariant="ocean" active={listening && visible && !reduced} theme={dark ? 'dark' : 'light'} strength={0.7}>
+            <VoiceBeam className="composer-voice" level={getLevel} colorVariant="ocean" active={listening && visible && !reduced} theme={dark ? 'dark' : 'light'} strength={0.7}>
                 <div ref={slot} className="composer-slot"/>
             </VoiceBeam>
         </BorderBeam>

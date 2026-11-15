@@ -146,8 +146,10 @@ function parseToolArguments(raw: Record<string, unknown> | string): Record<strin
 }
 
 function buildCodeTask(task: string, context: string, history: ChatMessage[], prompt: string): string {
-	const transcript = [...history, { role: 'user', content: prompt }]
-		.slice(-TRANSCRIPT_MESSAGES)
+	const transcript = [
+		...history.slice(Math.max(0, history.length - TRANSCRIPT_MESSAGES + 1)),
+		{ role: 'user', content: prompt }
+	]
 		.map(message => `${message.role}: ${message.content.slice(0, TRANSCRIPT_CHARS)}`)
 		.join('\n\n');
 	return [
