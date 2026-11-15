@@ -5,6 +5,7 @@ import { ThinkingOrb } from 'thinking-orbs';
 import { Liquid } from 'liquid-gooey';
 import { VoiceBeam } from 'voice-glow';
 import type { ReviewCard } from '../src/reviewQueue';
+import { MessageFeed } from './MessageFeed';
 
 declare global {
     interface Window {
@@ -84,6 +85,7 @@ function Effects() {
     }
     const orbState = /load|connect|switch/i.test(status) ? 'connecting' : /code|writ|tool|read/i.test(status) ? 'working' : 'solving';
     return <>
+        <MessageFeed />
         <div className="activity" aria-hidden="true">
             {busy ? <><ThinkingOrb state={orbState} size={20} theme={dark ? 'dark' : 'light'} paused={reduced || !visible}/><span>{status || 'Thinking…'}</span></> : <><span className="ready-dot"/><span>{listening ? 'Listening · local dictation' : connection === 'ready' ? 'Ready when you are' : connection === 'loading' ? 'Connecting to Ollama…' : 'Ollama unavailable'}</span></>}
             {busy && <button className="record" onClick={() => window.copilot.post({ type: 'stopTask' })}>Stop task</button>}

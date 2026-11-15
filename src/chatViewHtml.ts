@@ -121,6 +121,13 @@ export function createChatViewHtml(effectsUri?: string): string {
         .review-note { margin-bottom:0; }
         .command-output { margin-bottom:12px; color:var(--vscode-descriptionForeground); font-size:11px; }
         .command-output pre { max-height:140px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+	        .task-steps { margin-top:10px; border:1px solid var(--vscode-widget-border, transparent); border-radius:8px; padding:6px 9px; color:var(--vscode-descriptionForeground); font-size:var(--small); }
+	        .task-steps summary { cursor:pointer; }
+	        .task-steps ol { padding:0 0 0 16px; margin:8px 0 0; }
+	        .task-steps li { display:flex; justify-content:space-between; gap:8px; margin:4px 0; overflow-wrap:anywhere; }
+	        .step-failed { color:var(--vscode-errorForeground); }
+	        .step-done span:last-child { color:var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-foreground)); }
+	        @media (forced-colors:active) { .task-steps, .codeblock, .message.user { border:1px solid CanvasText; } }
 	</style>
 </head>
 <body>
@@ -151,188 +158,22 @@ export function createChatViewHtml(effectsUri?: string): string {
 		const modelSelect = document.getElementById('model');
 		const codeModelSelect = document.getElementById('codeModel');
 		const promptInput = document.getElementById('prompt');
-		const messagesElement = document.getElementById('messages');
 		const statusElement = document.getElementById('status');
 		const errorElement = document.getElementById('error');
 		const sendButton = document.getElementById('send');
-		const TICK = String.fromCharCode(96);
-		const FENCE = TICK + TICK + TICK;
-		const NEWLINE = String.fromCharCode(10);
-		const SPARKLE = 'M8 1.5l1.6 4.9 4.9 1.6-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z';
 		const savedState = vscode.getState() || {};
-		let chat;
 		let busy = false;
-		let pending;
-		let pendingElement;
-
-		function sparkle() {
-			const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-			svg.setAttribute('viewBox', '0 0 16 16');
-			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-			path.setAttribute('d', SPARKLE);
-			svg.append(path);
-			return svg;
-		}
-
-		function appendInline(parent, text) {
-			let index = 0;
-			while (index < text.length) {
-				const tick = text.indexOf(TICK, index);
-				const bold = text.indexOf('**', index);
-				const isCode = tick !== -1 && (bold === -1 || tick < bold);
-				const start = isCode ? tick : bold;
-				if (start === -1) { parent.append(text.slice(index)); return; }
-				const marker = isCode ? TICK : '**';
-				const end = text.indexOf(marker, start + marker.length);
-				if (end === -1) { parent.append(text.slice(index)); return; }
-				if (start > index) parent.append(text.slice(index, start));
-				const node = document.createElement(isCode ? 'code' : 'strong');
-				node.textContent = text.slice(start + marker.length, end);
-				parent.append(node);
-				index = end + marker.length;
-			}
-		}
-
-		function trimNewlines(text) {
-			let start = 0;
-			let end = text.length;
-			while (start < end && text[start] === NEWLINE) start++;
-			while (end > start && text[end - 1] === NEWLINE) end--;
-			return text.slice(start, end);
-		}
-
-		function addText(container, text) {
-			const trimmed = trimNewlines(text);
-			if (!trimmed) return;
-			const paragraph = document.createElement('div');
-			paragraph.className = 'para';
-			appendInline(paragraph, trimmed);
-			container.append(paragraph);
-		}
-
-		function addCodeBlock(container, language, code) {
-			const block = document.createElement('div');
-			block.className = 'codeblock';
-			const head = document.createElement('div');
-			head.className = 'codehead';
-			const lang = document.createElement('span');
-			lang.className = 'lang';
-			lang.textContent = language;
-			const copy = document.createElement('button');
-			copy.type = 'button';
-			copy.className = 'link';
-			copy.textContent = 'Copy';
-			copy.addEventListener('click', () => vscode.postMessage({ type: 'copyCode', code }));
-			const apply = document.createElement('button');
-			apply.type = 'button';
-			apply.className = 'link';
-			apply.textContent = 'Apply';
-			apply.title = 'Replace the selection (or whole file) in the active editor';
-			apply.addEventListener('click', () => vscode.postMessage({ type: 'applyCode', code }));
-			head.append(lang, copy, apply);
-			const pre = document.createElement('pre');
-			const body = document.createElement('code');
-			body.textContent = code;
-			pre.append(body);
-			block.append(head, pre);
-			container.append(block);
-		}
-
-		function renderMarkdown(container, text) {
-			let index = 0;
-			while (index < text.length) {
-				const open = text.indexOf(FENCE, index);
-				if (open === -1) { addText(container, text.slice(index)); return; }
-				addText(container, text.slice(index, open));
-				const lineEnd = text.indexOf(NEWLINE, open);
-				if (lineEnd === -1) { addText(container, text.slice(open)); return; }
-				const language = text.slice(open + 3, lineEnd).trim();
-				const close = text.indexOf(NEWLINE + FENCE, lineEnd);
-				const code = close === -1 ? text.slice(lineEnd + 1) : text.slice(lineEnd + 1, close);
-				addCodeBlock(container, language, code);
-				index = close === -1 ? text.length : close + 4;
-			}
-		}
-
-		function addMessage(role, content, changes, isPending) {
-			const message = document.createElement('div');
-			message.className = 'message ' + role;
-			if (role === 'assistant') {
-				const head = document.createElement('div');
-				head.className = 'head';
-				const avatar = document.createElement('span');
-				avatar.className = 'avatar';
-				avatar.append(sparkle());
-				const name = document.createElement('span');
-				name.textContent = 'Local Copilot';
-				head.append(avatar, name);
-				message.append(head);
-			}
-			const text = document.createElement('div');
-			if (isPending) {
-				text.className = 'thinking';
-				text.textContent = statusElement.textContent || 'Working…';
-				pendingElement = text;
-			} else if (role === 'assistant') {
-				renderMarkdown(text, content);
-			} else {
-				text.className = 'para';
-				text.textContent = content;
-			}
-			message.append(text);
-			if (changes && changes.length) {
-				const list = document.createElement('div');
-				list.className = 'changes';
-				for (const change of changes) {
-					const row = document.createElement('div');
-					row.textContent = (change.action === 'delete' ? 'Deleted ' : 'Changed ') + change.path;
-					list.append(row);
-				}
-				message.append(list);
-			}
-			messagesElement.append(message);
-		}
-
-		function addEmptyState() {
-			const empty = document.createElement('div');
-			empty.className = 'empty';
-			const title = document.createElement('div');
-			title.className = 'title';
-			title.textContent = 'What are we building?';
-			const hint = document.createElement('p');
-			hint.textContent = 'A focused space to think through ideas, understand your code, and build with local models.';
-			const suggestions = document.createElement('div');
-			suggestions.className = 'suggestions';
-			for (const label of ['Explain a piece of code', 'Help me improve this project']) {
-				const button = document.createElement('button');
-				button.textContent = label;
-				button.addEventListener('click', () => { promptInput.value = label + ' '; promptInput.dispatchEvent(new Event('input')); promptInput.focus(); });
-				suggestions.append(button);
-			}
-			empty.append(sparkle(), title, hint, suggestions);
-			messagesElement.append(empty);
-		}
 
 		function render() {
-			messagesElement.replaceChildren();
-			pendingElement = undefined;
-			const entries = chat ? chat.transcript : [];
-			if (!entries.length && !pending) addEmptyState();
-			for (const entry of entries) addMessage(entry.role, entry.content, entry.changes, false);
-			if (pending) {
-				addMessage('user', pending.prompt, undefined, false);
-				addMessage('assistant', '', undefined, true);
-			}
+			// The message feed is rendered by React; this only updates composer controls.
 			sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim();
 			modelSelect.disabled = busy;
 			codeModelSelect.disabled = busy;
 			updateEffects();
-			messagesElement.scrollTop = messagesElement.scrollHeight;
 		}
 
 		function setStatus(text) {
 			statusElement.textContent = text;
-			if (pendingElement && text) pendingElement.textContent = text;
 			updateEffects();
 		}
 
@@ -363,7 +204,6 @@ export function createChatViewHtml(effectsUri?: string): string {
 			if (window.copilot.recording || window.copilot.review || window.copilot.connection !== 'ready') return;
 			errorElement.textContent = '';
 			busy = true;
-			pending = { prompt };
 			const delegation = prompt.startsWith('/code') && (prompt.length === 5 || prompt[5].trim() === '');
 			if (delegation) {
 				vscode.postMessage({
@@ -414,11 +254,9 @@ export function createChatViewHtml(effectsUri?: string): string {
 				rememberModels();
 				if (!message.models.length) setStatus('No models found; pull one with Ollama first.');
 			} else if (message.type === 'state') {
-				chat = message.chat;
                 window.copilot.review = message.review || null;
                 window.copilot.commandOutput = message.commandOutput || '';
 				busy = Boolean(message.busy);
-				pending = message.pending;
 				errorElement.textContent = '';
 				setStatus(busy ? message.status || '' : '');
 				render();
@@ -427,7 +265,6 @@ export function createChatViewHtml(effectsUri?: string): string {
 				errorElement.textContent = '';
 			} else if (message.type === 'error') {
 				busy = false;
-				pending = undefined;
 				setStatus('');
 				errorElement.textContent = message.text;
 				if (message.prompt && !promptInput.value) {

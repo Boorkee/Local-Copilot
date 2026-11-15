@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const host = (page, data) => page.evaluate(data => window.postMessage(data, '*'), data);
 test.beforeEach(async ({page}) => {
   await page.goto('/');
-  await host(page, {type:'state', chat:{transcript:[]}, busy:false});
+  await host(page, {type:'state', chat:{id:'session-1',transcript:[]}, busy:false});
   await host(page, {type:'models', models:['local-chat', 'local-code'], defaultModel:'local-chat', defaultCodeModel:'local-code'});
   await host(page, {type:'connection', state:'ready'});
   await expect(page.getByRole('button', {name:'Speak', exact:true})).toBeVisible();
@@ -90,4 +90,29 @@ test('selects an installed model when the configured default is missing', async 
   await host(page, {type:'models',models:['installed:latest'],defaultModel:'missing:chat',defaultCodeModel:'missing:code'});
   await expect(page.locator('#model')).toHaveValue('installed:latest');
   await expect(page.locator('#codeModel')).toHaveValue('installed:latest');
+});
+
+test('streams only the active task and keeps agent activity visible', async ({page}) => {
+  await host(page, {type:'state',chat:{id:'session-1',transcript:[]},busy:true,pending:{prompt:'Review this project'},taskId:'task-1',status:'Thinking…'});
+  await host(page, {type:'assistantDelta',sessionId:'session-1',taskId:'task-1',text:'I found '});
+  await host(page, {type:'assistantDelta',sessionId:'session-2',taskId:'task-2',text:'wrong session'});
+  await host(page, {type:'assistantDelta',sessionId:'session-1',taskId:'task-1',text:'three files.'});
+  await expect(page.locator('#messages .assistant')).toContainText('I found three files.');
+  await expect(page.locator('#messages')).not.toContainText('wrong session');
+  await host(page, {type:'toolActivity',sessionId:'session-1',taskId:'task-1',stepId:'step-1',summary:'search workspace',status:'done'});
+  await expect(page.locator('.task-steps')).toContainText('search workspace');
+  await host(page, {type:'state',chat:{id:'session-1',transcript:[{role:'user',content:'Review this project'},
+    {role:'assistant',content:'I found three files.',steps:[{id:'step-1',summary:'search workspace',status:'done'}]}]},busy:false});
+  await expect(page.locator('#messages .assistant')).toHaveCount(1);
+  await expect(page.locator('.task-steps')).toContainText('done');
+});
+
+test('does not jump to bottom while reading a long streamed conversation', async ({page}) => {
+  const transcript = Array.from({length:300},(_,i)=>({role:i%2?'assistant':'user',content:`Message ${i}: ${'long content '.repeat(12)}`}));
+  await host(page, {type:'state',chat:{id:'session-1',transcript},busy:true,pending:{prompt:'Continue'},taskId:'task-1',status:'Working…'});
+  await expect(page.locator('#messages .message')).toHaveCount(302);
+  await page.locator('#messages').evaluate(node=>node.scrollTop=0);
+  await host(page, {type:'assistantDelta',sessionId:'session-1',taskId:'task-1',text:'Streaming continues.'});
+  await expect(page.locator('#messages .assistant').last()).toContainText('Streaming continues.');
+  expect(await page.locator('#messages').evaluate(node=>node.scrollTop)).toBeLessThan(60);
 });

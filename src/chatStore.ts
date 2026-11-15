@@ -4,6 +4,7 @@ import { ChatMessage } from './ollamaClient';
 export type TranscriptEntry = {
 	role: 'user' | 'assistant';
 	content: string;
+	steps?: Array<{ id: string; summary: string; status: 'started' | 'done' | 'failed' }>;
 	/** Files the code model changed during this turn, shown under the reply. */
 	changes?: Array<{ action: 'write' | 'delete'; path: string }>;
 };

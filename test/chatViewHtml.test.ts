@@ -25,9 +25,7 @@ describe('createChatViewHtml', () => {
 			'id="codeModel"',
 			'id="refresh"',
 			'type: \'sendMessage\'',
-			'type: \'refreshModels\'',
-			'type: \'applyCode\'',
-			'type: \'copyCode\''
+			'type: \'refreshModels\''
 		]) {
 			assert.ok(html.includes(expected), `Expected webview HTML to include ${expected}`);
 		}
@@ -45,12 +43,11 @@ describe('createChatViewHtml', () => {
 		assert.ok(toolbar < chatModel && chatModel < codeModel && codeModel < send);
 	});
 
-	it('renders model and message text using textContent rather than HTML injection', () => {
+	it('keeps model names inert and leaves transcript rendering to React', () => {
 		const html = createChatViewHtml();
 
 		assert.match(html, /option\.textContent = name/);
-		assert.match(html, /body\.textContent = code/);
-		assert.match(html, /node\.textContent = text\.slice/);
+		assert.doesNotMatch(html, /messagesElement\.replaceChildren/);
 		assert.doesNotMatch(html, /innerHTML/);
 	});
 

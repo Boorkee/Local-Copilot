@@ -56,6 +56,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private taskController?: AbortController;
     private streamBuffer = '';
     private streamTimer?: ReturnType<typeof setTimeout>;
+    private taskSteps: NonNullable<TranscriptEntry['steps']> = [];
     private commandOutput = '';
     private connection: 'loading' | 'ready' | 'empty' | 'error' = 'loading';
     private connectionError = '';
@@ -166,6 +167,15 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         if (!this.streamTimer) this.streamTimer = setTimeout(() => this.flushDelta(chatId, taskId), 33);
     }
 
+    private recordTool(chatId: string, taskId: string, stepId: string, tool: string, status: 'started' | 'done' | 'failed'): void {
+        if (this.taskId !== taskId) return;
+        const summary = tool.replace(/_/g, ' ');
+        const index = this.taskSteps.findIndex(step => step.id === stepId);
+        if (index === -1) this.taskSteps.push({ id: stepId, summary, status });
+        else this.taskSteps[index] = { id: stepId, summary, status };
+        this.post({ type: 'toolActivity', taskId, sessionId: chatId, stepId, summary, status });
+    }
+
 	private postState(): void {
 		const chat = this.store.active();
 		if (this.view) {
@@ -195,6 +205,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.pending = { chatId: chat.id, prompt };
 		this.taskController = new AbortController();
         this.streamBuffer = '';
+        this.taskSteps = [];
         this.commandOutput = '';
         this.setStatus('Thinking…');
         this.postState();
@@ -203,6 +214,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		try {
 			const turn = await work(chat);
 			this.taskController.signal.throwIfAborted();
+			const reply = [...turn.transcript].reverse().find(entry => entry.role === 'assistant');
+            if (reply && this.taskSteps.length) reply.steps = this.taskSteps.map(step => ({ ...step }));
 			this.store.appendTurn(chat.id, turn.transcript, turn.history);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
@@ -214,6 +227,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         this.taskController = undefined;
 		this.busy = false;
 		this.taskId = undefined;
+        this.taskSteps = [];
 		this.pending = undefined;
 		this.status = '';
 		this.postState();
@@ -270,8 +284,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                                 ? (await runAgent({ client: this.client, model, task: prompt, history: chat.history.slice(-20), tools,
                                     signal: this.taskController!.signal, onProgress: text => this.setStatus(text),
                                     onDelta: text => this.addDelta(chat.id, this.taskId!, text),
-                                    onToolActivity: (stepId, tool, status) => this.post({ type: 'toolActivity',
-                                        taskId: this.taskId!, sessionId: chat.id, stepId, summary: tool.replace(/_/g, ' '), status }) })).summary
+                                    onToolActivity: (stepId, tool, status) => this.recordTool(chat.id, this.taskId!, stepId, tool, status) })).summary
                                 : await this.client.chat(model, prompt, [...chat.history],
                                     { signal: this.taskController!.signal, onDelta: text => this.addDelta(chat.id, this.taskId!, text) });
                         } catch (error) {
