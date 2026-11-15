@@ -60,11 +60,21 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private commandOutput = '';
     private connection: 'loading' | 'ready' | 'empty' | 'error' = 'loading';
     private connectionError = '';
+    private modelRefresh = 0;
+    private readonly diffPreviews = new Map<string, { before: string; after: string }>();
 
 	constructor(context: vscode.ExtensionContext) {
 		this.extensionUri = context.extensionUri;
 		this.voice = new VoiceInput(vscode.Uri.joinPath(context.extensionUri, 'resources', 'speech.ps1').fsPath, event => this.post(event));
 		context.subscriptions.push(this.voice, { dispose: () => this.stopTask() });
+		context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('local-copilot-review', {
+            provideTextDocumentContent: uri => {
+                const [, id, side] = uri.path.split('/');
+                const preview = this.diffPreviews.get(id);
+                return preview ? side === 'before' ? preview.before : side === 'after' ? preview.after : ''
+                    : 'This review preview is no longer available.';
+            }
+        }));
 		this.store = new ChatStore(context.globalState);
 		this.client = this.createClient();
 		vscode.workspace.onDidChangeConfiguration(event => {
@@ -265,6 +275,14 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'openExternal':
                     await vscode.env.openExternal(vscode.Uri.parse(message.url));
                     break;
+                case 'openDiff': {
+                    const review = this.reviews.current;
+                    if (!review || review.id !== message.id || review.kind === 'command' || !this.diffPreviews.has(message.id)) break;
+                    const before = vscode.Uri.from({ scheme: 'local-copilot-review', path: `/${review.id}/before` });
+                    const after = vscode.Uri.from({ scheme: 'local-copilot-review', path: `/${review.id}/after` });
+                    await vscode.commands.executeCommand('vscode.diff', before, after, `Proposed: ${review.title}`, { preview: true });
+                    break;
+                }
                 case 'openSettings':
                     await vscode.commands.executeCommand('workbench.action.openSettings', 'localCopilot.ollamaBaseUrl');
                     break;
@@ -289,6 +307,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     }
                     const model = agentMode ? message.codeModel?.trim() : message.model.trim();
                     if (!model) throw new Error('Select a code model with tool-calling support for Agent mode.');
+                    if (agentMode && this.client.cachedCapability(model) === 'chat')
+                        throw new Error(`${model} does not advertise Ollama tool support. Choose a tool-capable model for Agent or switch to Chat mode.`);
                     await this.runTurn(prompt, async chat => {
                         const tools = agentMode ? this.createTools(root!) : undefined;
                         let content: string;
@@ -374,7 +394,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
             assertActive,
             openDocuments: unsavedDocuments,
             confirmWrite: proposal => this.reviewWrite(proposal),
-            confirmDelete: (file, before) => this.reviews.request(fileReview('delete', file, before ?? '', '')),
+            confirmDelete: (file, before) => this.requestFileReview('delete', file, before ?? '', ''),
             runCommand: async (command, cwd) => {
                 assertActive();
                 if (!command.trim() || command.length > 10000) throw new Error('Command must contain 1–10000 characters.');
@@ -433,22 +453,46 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private reviewWrite(proposal: WriteProposal): Promise<boolean> {
-        return this.reviews.request(fileReview('write', proposal.path, proposal.before ?? '', proposal.after));
+        return this.requestFileReview('write', proposal.path, proposal.before ?? '', proposal.after);
+    }
+
+    private requestFileReview(kind: 'write' | 'delete', file: string, before: string, after: string): Promise<boolean> {
+        if (this.reviews.current) return Promise.reject(new Error('Finish the current review first.'));
+        const decision = this.reviews.request(fileReview(kind, file, before, after));
+        const id = this.reviews.current!.id;
+        this.diffPreviews.set(id, { before, after });
+        // Preview documents are read-only; bound their memory footprint across long sessions.
+        if (this.diffPreviews.size > 25) this.diffPreviews.delete(this.diffPreviews.keys().next().value!);
+        return decision;
     }
 
 
     private async refreshModels(): Promise<void> {
+        const refresh = ++this.modelRefresh;
+        const client = this.client;
         this.connection = 'loading';
         this.connectionError = '';
         this.post({ type: 'connection', state: 'loading' });
         try {
-            const models = await this.client.listModels();
+            const models = await client.listModels();
+            if (refresh !== this.modelRefresh || client !== this.client) return;
             this.connection = models.length ? 'ready' : 'empty';
             this.connectionError = models.length ? '' : 'Ollama is connected but has no models. Pull a tool-capable coding model, then retry.';
-            this.post({ type: 'models', models: models.map(model => model.name).filter(Boolean),
-                defaultModel: vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'qwen2.5-coder:7b'),
-                defaultCodeModel: vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'qwen2.5-coder:14b') });
+            const names = models.map(model => model.name).filter(Boolean);
+            const defaultModel = vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'qwen2.5-coder:7b');
+            const defaultCodeModel = vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'qwen2.5-coder:14b');
+            this.post({ type: 'models', models: names, defaultModel, defaultCodeModel });
             this.post({ type: 'connection', state: this.connection, text: this.connectionError });
+            const capabilities: Record<string, 'tools' | 'chat' | 'unknown'> = {};
+            let next = 0;
+            await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
+                while (next < names.length) {
+                    const name = names[next++];
+                    capabilities[name] = await client.inspectModel(name).catch(() => 'unknown' as const);
+                }
+            }));
+            if (refresh === this.modelRefresh && client === this.client)
+                this.post({ type: 'models', models: names, defaultModel, defaultCodeModel, capabilities });
         } catch (error) {
             this.connection = 'error';
             this.connectionError = error instanceof Error ? error.message : String(error);

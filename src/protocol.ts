@@ -23,7 +23,8 @@ export type HostEvent = VoiceEvent
     | { type: 'review'; review: ReviewCard | null }
     | { type: 'commandOutput'; text: string; reset?: boolean }
     | { type: 'connection'; state: 'loading' | 'ready' | 'empty' | 'error'; text?: string }
-    | { type: 'models'; models: string[]; defaultModel: string; defaultCodeModel: string }
+    | { type: 'models'; models: string[]; defaultModel: string; defaultCodeModel: string;
+        capabilities?: Record<string, 'tools' | 'chat' | 'unknown'> }
     | { type: 'taskStarted'; taskId: string; sessionId: string }
     | { type: 'assistantDelta'; taskId: string; sessionId: string; text: string }
     | { type: 'toolActivity'; taskId: string; sessionId: string; stepId: string; summary: string; status: 'started' | 'done' | 'failed' }

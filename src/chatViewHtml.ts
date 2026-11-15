@@ -116,7 +116,7 @@ export function createChatViewHtml(effectsUri?: string): string {
         .removed, .diff-remove { color:var(--vscode-gitDecoration-deletedResourceForeground, red); }
         .diff-add { background:var(--vscode-diffEditor-insertedTextBackground); }
         .diff-remove { background:var(--vscode-diffEditor-removedTextBackground); }
-        .review-actions { justify-content:flex-end; }
+	        .review-actions { justify-content:flex-end; flex-wrap:wrap; }
         .approve { border:0; border-radius:6px; padding:6px 12px; color:var(--vscode-button-foreground); background:var(--vscode-button-background); }
         .review-note { margin-bottom:0; }
         .command-output { margin-bottom:12px; color:var(--vscode-descriptionForeground); font-size:11px; }
@@ -192,16 +192,19 @@ export function createChatViewHtml(effectsUri?: string): string {
 			updateEffects();
 		}
 
-		function fillModelSelect(select, models, defaultModel, remembered) {
+		function fillModelSelect(select, models, defaultModel, remembered, capabilities = {}, requiresTools = false) {
 			const selected = select.value || remembered || defaultModel;
 			select.replaceChildren();
 			for (const name of models) {
 				const option = document.createElement('option');
 				option.value = name;
-				option.textContent = name;
+				option.textContent = name + (capabilities[name] === 'tools' ? ' · tools' : capabilities[name] === 'chat' ? ' · chat only' : '');
+				option.disabled = requiresTools && capabilities[name] === 'chat';
 				select.append(option);
 			}
-			select.value = models.includes(selected) ? selected : models.includes(defaultModel) ? defaultModel : models[0] || '';
+			const available = models.filter(name => !requiresTools || capabilities[name] !== 'chat');
+			select.value = available.includes(selected) ? selected : available.includes(defaultModel) ? defaultModel : available[0] || '';
+			select.title = requiresTools ? 'Agent requires a model with Ollama tool support' : 'Conversation model';
 		}
 
 		function rememberModels() {
@@ -264,8 +267,8 @@ export function createChatViewHtml(effectsUri?: string): string {
                 window.copilot.commandOutput = ((message.reset ? '' : window.copilot.commandOutput) + message.text).slice(-64000);
                 updateEffects();
             } else if (message.type === 'models') {
-				fillModelSelect(modelSelect, message.models, message.defaultModel, savedState.model);
-				fillModelSelect(codeModelSelect, message.models, message.defaultCodeModel, savedState.codeModel);
+				fillModelSelect(modelSelect, message.models, message.defaultModel, savedState.model, message.capabilities);
+				fillModelSelect(codeModelSelect, message.models, message.defaultCodeModel, savedState.codeModel, message.capabilities, true);
 				rememberModels();
 				if (!message.models.length) setStatus('No models found; pull one with Ollama first.');
 			} else if (message.type === 'state') {

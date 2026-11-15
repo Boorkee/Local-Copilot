@@ -122,6 +122,7 @@ function Effects() {
             {review.detail && <p>{review.detail}</p>}
             {review.lines && <div className="inline-diff" tabIndex={0} aria-label="Proposed changes">{review.lines.map((line, i) => <div key={i} className={`diff-${line.kind}`}><span aria-hidden="true">{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span>{line.text || ' '}</div>)}</div>}
             <div className="review-actions">
+                {review.kind !== 'command' && <button className="record" onClick={() => window.copilot.post({ type: 'openDiff', id: review.id })}>Open full diff</button>}
                 <button className="approve" onClick={() => window.copilot.post({ type: 'reviewDecision', id: review.id, approved: true })}>{review.kind === 'command' ? 'Run command' : review.kind === 'delete' ? 'Delete' : 'Keep'}</button>
                 <button className="record" onClick={() => window.copilot.post({ type: 'reviewDecision', id: review.id, approved: false })}>{review.kind === 'command' ? 'Reject' : 'Revert'}</button>
             </div>

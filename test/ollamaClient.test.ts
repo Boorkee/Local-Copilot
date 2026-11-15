@@ -52,6 +52,24 @@ describe('OllamaClient.listModels', () => {
 	});
 });
 
+describe('Ollama model capabilities', () => {
+    it('detects tool-capable and chat-only models using local metadata', async () => {
+        const { client, requests } = createClient(async request => jsonResponse({
+            capabilities: bodyOf(request).model === 'agent:7b' ? ['completion', 'tools'] : ['completion']
+        }));
+        assert.equal(client.cachedCapability('agent:7b'), 'unknown');
+        assert.equal(await client.inspectModel('agent:7b'), 'tools');
+        assert.equal(await client.inspectModel('chat:7b'), 'chat');
+        assert.equal(client.cachedCapability('agent:7b'), 'tools');
+        assert.deepEqual(requests.map(request => request.url.pathname), ['/api/show', '/api/show']);
+    });
+
+    it('does not guess capabilities when an older server omits metadata', async () => {
+        const { client } = createClient(async () => jsonResponse({}));
+        assert.equal(await client.inspectModel('unknown:7b'), 'unknown');
+    });
+});
+
 describe('OllamaClient.chat and streaming', () => {
     it('streams by default without unloading models owned by other clients', async () => {
         const { client, requests } = createClient(async () => jsonResponse({ message: { content: 'done' } }));

@@ -99,6 +99,7 @@ class ChatAccumulator {
 
 export class OllamaClient {
 	private readonly requests = new Set<AbortController>();
+    private readonly capabilities = new Map<string, 'tools' | 'chat' | 'unknown'>();
 	private activeModel: string | undefined;
 	private chatQueue: Promise<void> = Promise.resolve();
 
@@ -118,6 +119,18 @@ export class OllamaClient {
 		}
 		return result.models;
 	}
+
+    cachedCapability(model: string): 'tools' | 'chat' | 'unknown' {
+        return this.capabilities.get(model) ?? 'unknown';
+    }
+
+    async inspectModel(model: string): Promise<'tools' | 'chat' | 'unknown'> {
+        const info = await this.request<{ capabilities?: unknown }>('/api/show', { model });
+        const capability = Array.isArray(info.capabilities) && info.capabilities.every(value => typeof value === 'string')
+            ? info.capabilities.includes('tools') ? 'tools' : 'chat' : 'unknown';
+        this.capabilities.set(model, capability);
+        return capability;
+    }
 
 	async chat(model: string, prompt: string, history: ChatMessage[], options?: CompletionOptions): Promise<string> {
 		const message = await this.complete(model, [...history, { role: 'user', content: prompt }], undefined, options);

@@ -66,6 +66,8 @@ test('shows inline approvals and sends only the matching decision', async ({page
   await host(page, {type:'review',review:{id:'edit-1',kind:'write',title:'example.ts',added:1,removed:1,lines:[{kind:'remove',text:'const a = 1;'}, {kind:'add',text:'const a = 2;'}]}});
   await expect(page.locator('.diff-add')).toHaveText('+const a = 2;');
   await expect(page.locator('.diff-remove')).toHaveText('−const a = 1;');
+  await page.getByRole('button',{name:'Open full diff'}).click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toEqual({type:'openDiff',id:'edit-1'});
   await page.screenshot({path:testInfo.outputPath('inline-review.png')});
   await page.getByRole('button',{name:'Revert',exact:true}).click();
   await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toEqual({type:'reviewDecision',id:'edit-1',approved:false});
@@ -90,6 +92,14 @@ test('selects an installed model when the configured default is missing', async 
   await host(page, {type:'models',models:['installed:latest'],defaultModel:'missing:chat',defaultCodeModel:'missing:code'});
   await expect(page.locator('#model')).toHaveValue('installed:latest');
   await expect(page.locator('#codeModel')).toHaveValue('installed:latest');
+});
+
+test('labels tool support and avoids chat-only agent models', async ({page}) => {
+  await host(page, {type:'models', models:['chat:7b','agent:7b'], defaultModel:'chat:7b', defaultCodeModel:'chat:7b',
+    capabilities:{'chat:7b':'chat','agent:7b':'tools'}});
+  await expect(page.locator('#model')).toHaveValue('chat:7b');
+  await expect(page.locator('#codeModel')).toHaveValue('agent:7b');
+  await expect(page.locator('#codeModel option').last()).toContainText('tools');
 });
 
 test('streams only the active task and keeps agent activity visible', async ({page}) => {
