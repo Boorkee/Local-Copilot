@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { after, before, describe, it } from 'node:test';
 import { WorkspaceTools } from '../src/workspaceTools';
 
@@ -124,4 +125,61 @@ describe('WorkspaceTools', () => {
 		assert.match(await tools.execute('format_disk', {}), /unknown tool/);
 		assert.match(await tools.execute('read_file', '{not json'), /^Error:/);
 	});
+
+    it('searches bounded workspace text with line numbers and ignores dependencies', async () => {
+        await fs.writeFile(path.join(root, 'search.txt'), 'first line\nunique needle here\nneedle again\n');
+        const tools = new WorkspaceTools(root);
+        const result = JSON.parse(await tools.execute('search_workspace', { query: 'NEEDLE', maxResults: 1 }));
+        assert.deepEqual(result.matches, [{ path: 'search.txt', line: 2, excerpt: 'unique needle here' }]);
+        assert.equal(result.truncated, true);
+        assert.match(await tools.execute('search_workspace', { query: '' }), /Search text/);
+        assert.match(await tools.execute('search_workspace', { query: 'x', maxResults: 500 }), /maxResults/);
+        assert.match(await tools.execute('search_workspace', { query: 'secret', path: '../' }), /outside the workspace/);
+    });
+
+    it('reads precise file ranges with input and output limits', async () => {
+        await fs.writeFile(path.join(root, 'range.txt'), 'first\r\nsecond\r\nthird');
+        const tools = new WorkspaceTools(root);
+        const range = JSON.parse(await tools.execute('read_file_range', { path: 'range.txt', startLine: 2, endLine: 3 }));
+        assert.equal(range.text, '2: second\n3: third');
+        assert.equal(range.totalLines, 3);
+        assert.match(await tools.execute('read_file_range', { path: 'range.txt', startLine: 0, endLine: 2 }), /Line range/);
+        assert.match(await tools.execute('read_file_range', { path: 'range.txt', startLine: 2, endLine: 300 }), /Line range/);
+    });
+
+    it('replaces a unique span with review and rejects changed files', async () => {
+        await fs.writeFile(path.join(root, 'patch.txt'), 'alpha beta gamma');
+        const approved = new WorkspaceTools(root, { confirmWrite: async proposal => {
+            assert.equal(proposal.before, 'alpha beta gamma');
+            assert.equal(proposal.after, 'alpha BETA gamma');
+            return true;
+        } });
+        assert.match(await approved.execute('replace_in_file', { path: 'patch.txt', oldText: 'beta', newText: 'BETA' }), /Wrote/);
+        assert.equal(await fs.readFile(path.join(root, 'patch.txt'), 'utf8'), 'alpha BETA gamma');
+        await fs.writeFile(path.join(root, 'patch.txt'), 'twice twice');
+        assert.match(await approved.execute('replace_in_file', { path: 'patch.txt', oldText: 'twice', newText: 'once' }), /ambiguous/);
+
+        await fs.writeFile(path.join(root, 'patch.txt'), 'initial');
+        const stale = new WorkspaceTools(root, { confirmWrite: async () => {
+            await fs.writeFile(path.join(root, 'patch.txt'), 'changed during review');
+            return true;
+        } });
+        assert.match(await stale.execute('replace_in_file', { path: 'patch.txt', oldText: 'initial', newText: 'updated' }), /changed while you reviewed/);
+        assert.equal(await fs.readFile(path.join(root, 'patch.txt'), 'utf8'), 'changed during review');
+    });
+
+    it('reads staged and unstaged git diffs without executing a shell', async () => {
+        const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'lc-git-'));
+        try {
+            execFileSync('git', ['init', '-q', repo]);
+            await fs.writeFile(path.join(repo, 'file.txt'), 'test content\n');
+            execFileSync('git', ['add', 'file.txt'], { cwd: repo });
+            const tools = new WorkspaceTools(repo);
+            const diff = JSON.parse(await tools.execute('get_git_diff', {}));
+            assert.match(diff.staged, /test content/);
+            assert.equal(diff.unstaged, '');
+        } finally {
+            await fs.rm(repo, { recursive: true, force: true });
+        }
+    });
 });

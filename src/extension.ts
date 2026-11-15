@@ -404,7 +404,23 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                         selection: editor.document.getText(editor.selection).slice(0, 20000),
                         content: editor.document.getText().slice(0, 50000), dirty: editor.document.isDirty });
                 }
+                if (action === 'get_workspace_diagnostics') {
+                    const items = vscode.languages.getDiagnostics().flatMap(([uri, diagnostics]) => {
+                        const relative = uri.scheme === 'file' ? path.relative(root, uri.fsPath) : '..';
+                        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return [];
+                        return diagnostics.map(d => ({ path: relative.replace(/\\/g, '/'), line: d.range.start.line + 1,
+                            severity: vscode.DiagnosticSeverity[d.severity], message: d.message.slice(0, 500) }));
+                    });
+                    return JSON.stringify({ diagnostics: items.slice(0, 100), truncated: items.length > 100 });
+                }
                 const uri = vscode.Uri.file(absolute!);
+                if (action === 'list_symbols') {
+                    const symbols = await vscode.commands.executeCommand<Array<vscode.DocumentSymbol | vscode.SymbolInformation>>(
+                        'vscode.executeDocumentSymbolProvider', uri) ?? [];
+                    return JSON.stringify({ symbols: symbols.slice(0, 100).map(symbol => ({ name: symbol.name,
+                        kind: vscode.SymbolKind[symbol.kind], line: ('range' in symbol ? symbol.range : symbol.location.range).start.line + 1 })),
+                        truncated: symbols.length > 100 });
+                }
                 if (action === 'open_file') {
                     await vscode.window.showTextDocument(uri, { preview: true, preserveFocus: true });
                     return 'Opened file in VS Code.';
