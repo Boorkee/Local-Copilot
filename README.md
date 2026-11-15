@@ -12,9 +12,25 @@ A native VS Code sidebar chat extension backed by a local [Ollama](https://ollam
 1. Open this folder in VS Code.
 2. Run `npm install`.
 3. Press `F5` to launch an Extension Development Host.
-4. Open the Local Copilot icon in the Activity Bar, choose a model, and start chatting.
+4. Open the Local Copilot icon in the Activity Bar. Auto · Balanced is selected by default.
 
-The default model is `qwen2.5-coder:7b`. The model picker is populated from Ollama's `/api/tags` endpoint, with `/api/show` used to label models that advertise tool calling. Configure `localCopilot.ollamaBaseUrl`, `localCopilot.defaultModel`, `localCopilot.codeModel`, and `localCopilot.requestTimeoutMs` in VS Code settings as needed.
+The model picker is populated from Ollama's `/api/tags` endpoint, with `/api/show` used to verify models that advertise tool calling. Configure `localCopilot.ollamaBaseUrl`, `localCopilot.defaultModel`, `localCopilot.codeModel`, and `localCopilot.requestTimeoutMs` in VS Code settings as needed.
+
+## Automatic model switching
+
+The composer has one model picker for the current mode (Chat, Agent, or Plan). The default **Auto · Balanced** picks from models already installed in Ollama, independently for each request. You can also choose:
+
+- **Auto · Fast:** prioritize the smallest available local model.
+- **Auto · Quality:** prioritize the largest available local model.
+- **Any installed model:** turn off automatic selection for that mode and use that exact model.
+
+Balanced favors smaller models for short conversations and bigger ones for longer or more involved questions, code, attachments, and multi-step tasks. The router uses prompt characteristics and Ollama-reported parameter counts, falling back to disk size when needed; it is a small deterministic rule set, **not an extra LLM call**. It doesn't make quality or hardware-fit guarantees, and it never downloads models automatically. Pull more than one model for meaningful automatic switching. The size estimates don't measure benchmark quality or free VRAM.
+
+Auto in Agent and Plan considers only models with **confirmed tool support** from `/api/show`. If that metadata is missing or no compatible model is installed, it explains how to proceed instead of silently running an incompatible model. Selecting a model manually overrides Auto; in Agent and Plan, the selected model must still support tools.
+
+When a request starts, a badge in the assistant header shows **which model was actually used**, the Auto tier or Manual selection, and a hover explanation. The badge is saved with the chat. If a model fails to load, Auto may try another compatible model **only before any output or agent tool activity**; it will never replay a command or file edit. A model remains fixed for the duration of its request, including tool calls, so you do not lose intermediate context mid-task. Changing models across requests keeps conversation history, but does not magically transfer a model's internal state or KV cache.
+
+Automatic switching follows Ollama's existing model memory policy. `automatic` lets Ollama schedule resident models, while `conserve` and `keep` are explicit opt-ins described below. You can see the loaded models with `ollama ps`. If larger models exceed your RAM/VRAM, choose Fast or select a smaller model manually.
 
 ## Tests and CI
 
@@ -32,7 +48,7 @@ Model residency defaults to `automatic`, letting Ollama manage its own memory wi
 
 ## Agent mode and inline approvals
 
-**Agent** is the default mode. Ask normally: “fix this bug,” “create a settings page,” or “run the tests.” The selected **Code** model receives workspace tools directly; no `/code` prefix is required. **Plan** can search and inspect files but is strictly read-only: the host refuses writes, deletes, and shell commands. **Chat** uses the Chat model for conversation without workspace tools.
+**Agent** is the default mode. Ask normally: “fix this bug,” “create a settings page,” or “run the tests.” The chosen model receives workspace tools directly; no `/code` prefix is required. **Plan** can search and inspect files but is strictly read-only: the host refuses writes, deletes, and shell commands. **Chat** uses its chosen model for conversation without workspace tools.
 
 Agent tools can list and search workspace files (bounded excerpts with line numbers), read file ranges, inspect editor context, symbols, workspace diagnostics, and Git diffs; they can also create or delete files, propose unique text replacements, and request approved shell commands. The extension supplies and validates these tools; Ollama itself does not have IDE access. Choose a model with [Ollama tool calling](https://docs.ollama.com/capabilities/tool-calling), then open and trust a workspace. Unknown capabilities remain selectable; known Chat-only models are excluded from Agent selection. Tool search currently uses the first workspace root and skips common generated directories; it is not yet a full multi-root or indexed search service.
 
@@ -42,7 +58,7 @@ Every proposed file write or deletion shows a review card immediately above the 
 
 Every shell command shows its exact text, shell, and working directory and waits for **Run command** or **Reject**. Commands run in Windows PowerShell on Windows and `/bin/sh` elsewhere, with your account permissions; they are not sandboxed. Shell side effects are not covered by the file-tool Keep/Revert controls. Output and exit status return to the model and appear in an expandable output area. Commands are noninteractive, limited to two minutes and 64 KB of output. **Stop task** cancels pending approvals and terminates the running command process tree. Changing chats or closing the view also cancels the active task.
 
-The older `/code` handoff is still accepted for compatibility. The standalone CLI remains available:
+The standalone two-model handoff CLI remains available for advanced workflows:
 
 ```
 npm run compile

@@ -21,7 +21,8 @@ describe('extension project configuration', () => {
 		// Without type "webview" VS Code treats the view as a tree view and reports "no data provider registered".
 		assert.equal(contributes.views.localCopilot.find(view => view.id === 'localCopilot.chat')?.type, 'webview');
 		assert.equal(contributes.configuration.properties['localCopilot.ollamaBaseUrl'].default, 'http://127.0.0.1:11434');
-		assert.equal(contributes.configuration.properties['localCopilot.defaultModel'].default, 'qwen2.5-coder:7b');
+		assert.equal(contributes.configuration.properties['localCopilot.defaultModel'].default, 'auto:balanced');
+		assert.equal(contributes.configuration.properties['localCopilot.codeModel'].default, 'auto:balanced');
 		assert.equal(contributes.configuration.properties['localCopilot.requestTimeoutMs'].default, 300000);
 	});
 

@@ -44,6 +44,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		.pick { position: relative; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; color: var(--vscode-descriptionForeground); font-size: var(--small); }
 		.pick::after { content: '▾'; position: absolute; right: 3px; font-size: 9px; pointer-events: none; }
 		.pick span { margin-right: 2px; }
+		[hidden] { display:none !important; }
 		select { appearance: none; -webkit-appearance: none; min-width: 0; max-width: 130px; padding: 1px 13px 1px 3px; border: 1px solid transparent; border-radius: 3px; color: var(--vscode-foreground); background: transparent; font: inherit; font-size: var(--small); text-overflow: ellipsis; cursor: pointer; }
 		select:hover { background: var(--vscode-toolbar-hoverBackground); }
 		select option { color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); }
@@ -89,8 +90,15 @@ export function createChatViewHtml(effectsUri?: string): string {
         .composer-slot .composer { margin:0; border-radius:12px; overflow:hidden; }
         textarea { min-height:72px; padding:14px 12px 8px; line-height:1.6; }
         .toolbar { gap:6px; padding:8px; border-top:1px solid var(--vscode-widget-border, transparent); }
-        .pick { flex:1 1 90px; }
-        select { width:100%; max-width:140px; }
+		.pick { flex:1 1 90px; }
+		select { width:100%; max-width:175px; }
+		.route-hint { padding:0 10px 8px; color:var(--vscode-descriptionForeground); font-size:10px; line-height:1.35; }
+		.route-hint:empty { display:none; }
+		.model-pill { display:inline-flex; align-items:center; gap:5px; min-width:0; max-width:100%; padding:3px 8px; border:1px solid var(--vscode-widget-border, transparent); border-radius:20px; background:var(--vscode-input-background); color:var(--vscode-descriptionForeground); font-size:10px; font-weight:400; white-space:nowrap; }
+		.model-pill strong { font-weight:600; color:var(--vscode-foreground); }
+		.model-pill .model-name { display:inline-block; min-width:0; max-width:150px; overflow:hidden; text-overflow:ellipsis; }
+		.model-pill .model-dot { width:5px; height:5px; flex:none; border-radius:50%; background:var(--vscode-textLink-foreground); }
+		.message .head { flex-wrap:wrap; }
         button.send { width:30px; height:28px; border-radius:8px; }
         button.icon { width:28px; height:28px; }
         .voice-panel { padding:12px; margin-bottom:12px; border:1px solid var(--vscode-widget-border, transparent); border-radius:10px; background:var(--vscode-input-background); }
@@ -158,13 +166,14 @@ export function createChatViewHtml(effectsUri?: string): string {
 			<div id="attachment-chips" class="attachment-chips" aria-label="Attached context"></div>
 		<div class="toolbar">
 	            <label class="pick" title="Agent edits with approval; Plan reads only; Chat answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="plan">Plan</option><option value="chat">Chat</option></select></label>
-			<label class="pick" title="Chat model"><span>Chat</span><select id="model" aria-label="Chat model"></select></label>
-			<label class="pick" title="Code model used in Agent mode"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
+			<label class="pick" id="chat-model-picker" title="Choose a model for Chat mode"><span>Model</span><select id="model" aria-label="Chat model"></select></label>
+			<label class="pick" id="code-model-picker" title="Choose a model for Agent and Plan modes"><span>Model</span><select id="codeModel" aria-label="Agent model"></select></label>
 			<button id="refresh" class="icon" type="button" title="Refresh models" aria-label="Refresh models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
 				<button id="attach" class="icon" type="button" title="Attach active editor or selection" aria-label="Attach active editor"><svg viewBox="0 0 16 16"><path d="M6.5 13.5a3.5 3.5 0 0 1-3.5-3.5V5.5a2.5 2.5 0 0 1 5 0v4.7a1.5 1.5 0 0 1-3 0V6.5h1.3v3.7a.2.2 0 0 0 .4 0V5.5a1.2 1.2 0 0 0-2.4 0V10a2.2 2.2 0 0 0 4.4 0V5a3.5 3.5 0 1 1 7 0v5.2h-1.3V5a2.2 2.2 0 0 0-4.4 0v5a3.5 3.5 0 0 1-3.5 3.5z"/></svg></button>
 			<span class="spacer"></span>
 			<button id="send" class="send" type="button" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2z"/></svg></button>
 		</div>
+		<div class="route-hint" id="routeHint" aria-live="polite"></div>
 	</div>
 	<div id="effects"></div>
 	<script nonce="${nonce}">
@@ -177,6 +186,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 		}
 		const modelSelect = document.getElementById('model');
 		const codeModelSelect = document.getElementById('codeModel');
+		const agentModeSelect = document.getElementById('agentMode');
+		const routeHint = document.getElementById('routeHint');
 		const promptInput = document.getElementById('prompt');
 		const statusElement = document.getElementById('status');
 		const errorElement = document.getElementById('error');
@@ -188,8 +199,17 @@ export function createChatViewHtml(effectsUri?: string): string {
 		function render() {
 			// The message feed is rendered by React; this only updates composer controls.
 			sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim();
+			const chatting = agentModeSelect.value === 'chat';
+			document.getElementById('chat-model-picker').hidden = !chatting;
+			document.getElementById('code-model-picker').hidden = chatting;
+			const chosen = chatting ? modelSelect.value : codeModelSelect.value;
+			const tier = chosen === 'auto:fast' ? 'Fast' : chosen === 'auto:quality' ? 'Quality' : 'Balanced';
+			routeHint.textContent = chosen.startsWith('auto:')
+				? '✦ Auto · ' + tier + ' — selects an installed local model for each request.'
+				: chosen ? 'Using ' + chosen + ' for ' + (chatting ? 'chat' : agentModeSelect.value) + '.' : '';
 			modelSelect.disabled = busy;
 			codeModelSelect.disabled = busy;
+			agentModeSelect.disabled = busy;
 			document.getElementById('attach').disabled = busy;
 			updateEffects();
 		}
@@ -202,16 +222,29 @@ export function createChatViewHtml(effectsUri?: string): string {
 		function fillModelSelect(select, models, defaultModel, remembered, capabilities = {}, requiresTools = false) {
 			const selected = select.value || remembered || defaultModel;
 			select.replaceChildren();
+			const automatic = document.createElement('optgroup');
+			automatic.label = 'Automatic routing';
+			for (const [name, label] of [['auto:balanced', '✦ Auto · Balanced'], ['auto:fast', '⚡ Auto · Fast'], ['auto:quality', '◆ Auto · Quality']]) {
+				const option = document.createElement('option');
+				option.value = name;
+				option.textContent = label;
+				automatic.append(option);
+			}
+			select.append(automatic);
+			const manual = document.createElement('optgroup');
+			manual.label = 'Installed models';
 			for (const name of models) {
 				const option = document.createElement('option');
 				option.value = name;
-				option.textContent = name + (capabilities[name] === 'tools' ? ' · tools' : capabilities[name] === 'chat' ? ' · chat only' : '');
-				option.disabled = requiresTools && capabilities[name] === 'chat';
-				select.append(option);
+				option.textContent = name + (capabilities[name] === 'tools' ? ' · tools' : capabilities[name] === 'chat' ? ' · chat only' : capabilities[name] === 'unsupported' ? ' · not chat-capable' : '');
+				option.disabled = capabilities[name] === 'unsupported' || requiresTools && capabilities[name] === 'chat';
+				manual.append(option);
 			}
-			const available = models.filter(name => !requiresTools || capabilities[name] !== 'chat');
-			select.value = available.includes(selected) ? selected : available.includes(defaultModel) ? defaultModel : available[0] || '';
-			select.title = requiresTools ? 'Agent requires a model with Ollama tool support' : 'Conversation model';
+			select.append(manual);
+			const available = models.filter(name => capabilities[name] !== 'unsupported' && (!requiresTools || capabilities[name] !== 'chat'));
+			const valid = value => value.startsWith('auto:') && ['auto:balanced', 'auto:fast', 'auto:quality'].includes(value) || available.includes(value);
+			select.value = valid(selected) ? selected : valid(defaultModel) ? defaultModel : 'auto:balanced';
+			select.title = requiresTools ? 'Auto selects verified tool-capable models; manual models require tool support' : 'Auto selects a local model for each request';
 		}
 
 		function rememberModels() {
@@ -229,19 +262,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 			if (window.copilot.recording || window.copilot.review || window.copilot.connection !== 'ready') return;
 			errorElement.textContent = '';
 			busy = true;
-			const delegation = document.getElementById('agentMode').value !== 'plan' &&
-				prompt.startsWith('/code') && (prompt.length === 5 || prompt[5].trim() === '');
-			if (delegation) {
-				vscode.postMessage({
-					type: 'delegate',
-					chatModel: modelSelect.value,
-					codeModel: codeModelSelect.value,
-					task: prompt.slice(5).trim(),
-					prompt
-				});
-			} else {
-				vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt, mode: document.getElementById('agentMode').value });
-			}
+			vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt, mode: agentModeSelect.value });
 			promptInput.value = '';
 			vscode.setState({ ...vscode.getState(), draft: '' });
 			autosize();
@@ -251,8 +272,11 @@ export function createChatViewHtml(effectsUri?: string): string {
 		sendButton.addEventListener('click', sendMessage);
 		document.getElementById('attach').addEventListener('click', () => vscode.postMessage({ type: 'attachEditor' }));
 		document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refreshModels' }));
-		modelSelect.addEventListener('change', rememberModels);
-		codeModelSelect.addEventListener('change', rememberModels);
+		modelSelect.addEventListener('change', () => { rememberModels(); render(); });
+		codeModelSelect.addEventListener('change', () => { rememberModels(); render(); });
+		agentModeSelect.addEventListener('change', () => { vscode.setState({ ...vscode.getState(), mode: agentModeSelect.value }); render(); });
+		if (['chat', 'agent', 'plan'].includes(savedState.mode)) agentModeSelect.value = savedState.mode;
+		render();
 		promptInput.addEventListener('input', () => { autosize(); sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim(); vscode.setState({ ...vscode.getState(), draft: promptInput.value }); });
 		promptInput.value = savedState.draft || '';
 		autosize();
@@ -289,6 +313,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 				fillModelSelect(modelSelect, message.models, message.defaultModel, savedState.model, message.capabilities);
 				fillModelSelect(codeModelSelect, message.models, message.defaultCodeModel, savedState.codeModel, message.capabilities, true);
 				rememberModels();
+				render();
 				if (!message.models.length) setStatus('No models found; pull one with Ollama first.');
 			} else if (message.type === 'state') {
                 window.copilot.review = message.review || null;

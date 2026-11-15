@@ -72,13 +72,13 @@
         },
         "localCopilot.defaultModel": {
           "type": "string",
-          "default": "qwen2.5-coder:7b",
-          "description": "Chat model selected when the chat view opens."
+          "default": "auto:balanced",
+          "description": "Chat model on startup. Use auto:balanced (recommended), auto:fast, auto:quality, or an installed Ollama model name."
         },
         "localCopilot.codeModel": {
           "type": "string",
-          "default": "qwen2.5-coder:14b",
-          "description": "Larger coding model used by /code. It must support Ollama tool calling."
+          "default": "auto:balanced",
+          "description": "Agent and Plan model on startup. Auto routing selects only verified tool-capable installed Ollama models. Choose a model name to override."
         },
         "localCopilot.requestTimeoutMs": {
           "type": "number",

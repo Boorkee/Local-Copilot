@@ -8,7 +8,7 @@ import type { Chat, TranscriptEntry } from '../src/chatStore';
 import type { HostEvent } from '../src/protocol';
 
 type Step = NonNullable<TranscriptEntry['steps']>[number];
-type LiveTask = { taskId: string; sessionId: string; content: string; steps: Step[] };
+type LiveTask = { taskId: string; sessionId: string; content: string; steps: Step[]; model?: TranscriptEntry['model'] };
 
 const destination = document.getElementById('messages')!;
 
@@ -62,7 +62,13 @@ function ToolSteps({ steps }: { steps: Step[] }) {
 
 function Message({ entry, pending, status }: { entry: TranscriptEntry; pending?: boolean; status?: string }) {
     return <article className={`message ${entry.role}`}>
-        {entry.role === 'assistant' && <div className="head"><span className="avatar" aria-hidden="true">✦</span>Local Copilot</div>}
+        {entry.role === 'assistant' && <div className="head"><span className="avatar" aria-hidden="true">✦</span>Local Copilot
+            {entry.model && <span className="model-pill" title={entry.model.reason}
+                aria-label={`${entry.model.label} selected ${entry.model.name}. ${entry.model.reason}`}>
+                <span className="model-dot" aria-hidden="true"/>
+                <strong>{entry.model.label}</strong><span className="model-name">· {entry.model.name}</span>
+            </span>}
+        </div>}
         {pending && !entry.content ? <div className="thinking">{status || 'Working…'}</div>
             : entry.role === 'assistant' ? <BasicMarkdown content={entry.content} />
                 : <div className="para">{entry.content}</div>}
@@ -115,6 +121,8 @@ export function MessageFeed() {
                 setStatus(message.text);
             } else if (message.type === 'assistantDelta' && message.taskId === current.current.taskId && message.sessionId === current.current.sessionId) {
                 setTask(previous => previous?.taskId === message.taskId ? { ...previous, content: previous.content + message.text } : previous);
+            } else if (message.type === 'modelSelected' && message.taskId === current.current.taskId && message.sessionId === current.current.sessionId) {
+                setTask(previous => previous?.taskId === message.taskId ? { ...previous, model: message.model } : previous);
             } else if (message.type === 'toolActivity' && message.taskId === current.current.taskId && message.sessionId === current.current.sessionId) {
                 setTask(previous => {
                     if (!previous || previous.taskId !== message.taskId) return previous;
@@ -150,7 +158,7 @@ export function MessageFeed() {
         {chat?.transcript.map((entry, index) => <Message key={`${chat.id}-${index}`} entry={entry} />)}
         {pending && <>
             <Message entry={{ role: 'user', content: pending.prompt }} pending />
-            <Message entry={{ role: 'assistant', content: task?.content ?? '', steps: task?.steps }} status={status} pending />
+            <Message entry={{ role: 'assistant', content: task?.content ?? '', steps: task?.steps, model: task?.model }} status={status} pending />
         </>}
         {!chat?.transcript.length && !pending && <Welcome />}
     </>, destination);

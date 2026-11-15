@@ -59,12 +59,19 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /if \(!prompt \|\| busy\) return;/);
 	});
 
-	it('routes /code messages to delegation and everything else to normal chat', () => {
+	it('routes natural-language tasks directly to the agent without /code', () => {
 		const html = createChatViewHtml();
 
-		assert.match(html, /type: 'delegate'/);
-		assert.match(html, /prompt\.startsWith\('\/code'\)/);
+		assert.doesNotMatch(html, /type: 'delegate'/);
+		assert.doesNotMatch(html, /prompt\.startsWith\('\/code'\)/);
 		assert.match(html, /type: 'sendMessage'/);
+	});
+
+	it('offers automatic routing tiers and one model picker per assistant mode', () => {
+		const html = createChatViewHtml();
+		for (const text of ['auto:balanced', 'auto:fast', 'auto:quality', 'chat-model-picker', 'code-model-picker', 'routeHint'])
+			assert.ok(html.includes(text));
+		assert.match(html, /agentModeSelect\.addEventListener\('change'/);
 	});
 
 	it('leaves chat history to the extension host so it survives the view being moved', () => {

@@ -88,10 +88,10 @@ test('connection errors disable sending and offer retry without dropping a draft
   await expect(page.locator('#prompt')).toHaveValue('Keep my draft');
 });
 
-test('selects an installed model when the configured default is missing', async ({page}) => {
+test('falls back to Auto when the configured default is missing', async ({page}) => {
   await host(page, {type:'models',models:['installed:latest'],defaultModel:'missing:chat',defaultCodeModel:'missing:code'});
-  await expect(page.locator('#model')).toHaveValue('installed:latest');
-  await expect(page.locator('#codeModel')).toHaveValue('installed:latest');
+  await expect(page.locator('#model')).toHaveValue('auto:balanced');
+  await expect(page.locator('#codeModel')).toHaveValue('auto:balanced');
 });
 
 test('offers a read-only planning mode', async ({page}) => {
@@ -114,8 +114,29 @@ test('labels tool support and avoids chat-only agent models', async ({page}) => 
   await host(page, {type:'models', models:['chat:7b','agent:7b'], defaultModel:'chat:7b', defaultCodeModel:'chat:7b',
     capabilities:{'chat:7b':'chat','agent:7b':'tools'}});
   await expect(page.locator('#model')).toHaveValue('chat:7b');
-  await expect(page.locator('#codeModel')).toHaveValue('agent:7b');
+  await expect(page.locator('#codeModel')).toHaveValue('auto:balanced');
   await expect(page.locator('#codeModel option').last()).toContainText('tools');
+});
+
+test('switches routing tiers by mode and shows the model used', async ({page}) => {
+  await expect(page.locator('#chat-model-picker')).toBeHidden();
+  await expect(page.locator('#code-model-picker')).toBeVisible();
+  await page.locator('#codeModel').selectOption('auto:quality');
+  await expect(page.locator('#routeHint')).toContainText('Quality');
+  await page.locator('#prompt').fill('Refactor this project');
+  await page.locator('#send').click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.codeModel)).toBe('auto:quality');
+  await host(page, {type:'state',chat:{id:'session-1',transcript:[]},busy:true,pending:{prompt:'Refactor this project'},taskId:'task-1'});
+  await host(page, {type:'modelSelected',sessionId:'session-1',taskId:'task-1',model:{name:'coder:14b',label:'Auto · Quality',reason:'Uses the largest model'}});
+  await expect(page.locator('#messages .model-pill')).toContainText('coder:14b');
+  await host(page, {type:'modelSelected',sessionId:'session-2',taskId:'task-2',model:{name:'wrong',label:'Auto',reason:'wrong'}});
+  await expect(page.locator('#messages')).not.toContainText('wrong');
+  await host(page, {type:'state',chat:{id:'session-1',transcript:[{role:'user',content:'Refactor this project'},
+    {role:'assistant',content:'Done',model:{name:'coder:14b',label:'Auto · Quality',reason:'Uses the largest model'}}]},busy:false});
+  await expect(page.locator('#messages .model-pill')).toContainText('coder:14b');
+  await page.getByRole('combobox',{name:'Assistant mode'}).selectOption('chat');
+  await expect(page.locator('#code-model-picker')).toBeHidden();
+  await expect(page.locator('#chat-model-picker')).toBeVisible();
 });
 
 test('streams only the active task and keeps agent activity visible', async ({page}) => {
