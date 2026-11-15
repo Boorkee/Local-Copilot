@@ -286,3 +286,8 @@ describe('OllamaClient request failures', () => {
 		await assert.rejects(client.listModels(), /timed out after 5 ms/);
 	});
 });
+
+it('explains connection failures with the configured server and recovery steps', async () => {
+    const client = new OllamaClient('http://127.0.0.1:11434', 1000, (async () => { throw new TypeError('fetch failed'); }) as typeof fetch);
+    await assert.rejects(() => client.listModels(), /Cannot reach Ollama at http:\/\/127.0.0.1:11434.*Start Ollama/);
+});

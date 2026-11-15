@@ -12,7 +12,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		:root { color-scheme: light dark; --small: calc(var(--vscode-font-size) * 0.85); --base: calc(var(--vscode-font-size) * 0.92); }
 		html, body { height: 100%; }
 		body { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0; overflow: hidden; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--base); line-height: 1.5; }
-		svg { width: 14px; height: 14px; fill: currentColor; stroke: none; flex: none; }
+		button svg, .avatar svg, .empty > svg { width: 14px; height: 14px; fill: currentColor; stroke: none; flex: none; }
 		#messages { display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; min-height: 60px; overflow-y: auto; padding: 10px 12px; }
 		.message.user { align-self: stretch; padding: 6px 10px; border: 1px solid var(--vscode-chat-requestBorder, var(--vscode-widget-border, transparent)); border-radius: 6px; background: var(--vscode-chat-requestBackground, var(--vscode-editor-inactiveSelectionBackground)); }
 		.message .head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-weight: 600; }
@@ -66,35 +66,33 @@ export function createChatViewHtml(effectsUri?: string): string {
         #messages { padding:22px 16px; gap:22px; }
         .message.user { padding:12px 14px; border-radius:12px; }
         .message .head { margin-bottom:9px; gap:8px; }
-        .empty { padding:12px 0; max-width:340px; text-align:left; }
+        .empty { margin:clamp(16px, 8vh, 90px) 0 auto; padding:12px 0; max-width:340px; text-align:left; }
         .empty > svg { width:32px; height:32px; color:var(--vscode-textLink-foreground); margin-bottom:18px; }
         .empty .title { font-size:20px; letter-spacing:-0.5px; }
         .empty p { font-size:12px; line-height:1.7; margin-top:9px; }
         .suggestions { display:flex; flex-direction:column; gap:8px; margin-top:24px; }
         .suggestions button { text-align:left; justify-content:flex-start; padding:10px 12px; border:1px solid var(--vscode-widget-border, var(--vscode-input-border, transparent)); border-radius:8px; background:var(--vscode-input-background); color:var(--vscode-foreground); font-size:11px; }
         .suggestions button:hover { border-color:var(--vscode-focusBorder); }
-        #effects { flex:none; padding:0 12px 12px; }
+        #effects { flex:0 1 auto; min-height:0; max-height:75%; overflow-y:auto; overflow-x:hidden; padding:6px 14px 14px; }
         .activity { display:flex; align-items:center; gap:8px; min-height:28px; margin:0 4px 8px; color:var(--vscode-descriptionForeground); font-size:11px; }
         .activity span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
         .ready-dot { width:6px; height:6px; border-radius:50%; background:var(--vscode-textLink-foreground); }
         .mode-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
         .mode-switch { position:relative; display:flex; padding:3px; border-radius:20px; background:var(--vscode-input-background); border:1px solid var(--vscode-widget-border, transparent); }
         .mode-liquid { position:absolute !important; inset:3px; pointer-events:none; }
-        .mode-blob { width:76px; height:28px; border-radius:16px; }
+        .mode-blob { width:76px; height:28px; border-radius:16px; transition:transform 260ms cubic-bezier(.2,.8,.2,1); }
         button.mode { position:relative; z-index:1; width:76px; height:28px; border:0; border-radius:16px; background:transparent; color:var(--vscode-descriptionForeground); font-size:11px; }
         button.mode[aria-pressed="true"] { color:var(--vscode-button-foreground); }
         button.mode.plain[aria-pressed="true"] { background:var(--vscode-button-background); }
         .mode-caption { margin-left:auto; color:var(--vscode-descriptionForeground); font-size:9px; text-align:right; }
         .composer-beam, .composer-voice, .composer-slot { display:block; width:100%; min-width:0; border-radius:12px; }
-        .composer-slot .composer { margin:0; border-radius:12px; }
+        .composer-slot .composer { margin:0; border-radius:12px; overflow:hidden; }
         textarea { min-height:72px; padding:14px 12px 8px; line-height:1.6; }
         .toolbar { gap:6px; padding:8px; border-top:1px solid var(--vscode-widget-border, transparent); }
         .pick { flex:1 1 90px; }
         select { width:100%; max-width:140px; }
         button.send { width:30px; height:28px; border-radius:8px; }
         button.icon { width:28px; height:28px; }
-        .input-hint { text-align:center; color:var(--vscode-descriptionForeground); font-size:9px; margin-top:9px; }
-        .input-hint span { padding:0 5px; }
         .voice-panel { padding:12px; margin-bottom:12px; border:1px solid var(--vscode-widget-border, transparent); border-radius:10px; background:var(--vscode-input-background); }
         .voice-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:600; }
         .record { border:1px solid var(--vscode-focusBorder); border-radius:6px; padding:5px 8px; background:transparent; color:var(--vscode-textLink-foreground); font-size:11px; }
@@ -102,6 +100,27 @@ export function createChatViewHtml(effectsUri?: string): string {
         button:focus-visible, select:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
         @media (max-width:280px) { .mode-caption, .local-badge { display:none; } .brand { padding:12px; } }
         @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
+
+        #status { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); padding:0; }
+        .activity .record { margin-left:auto; white-space:nowrap; }
+        .connection-panel, .review-panel { margin:0 0 12px; padding:12px; border:1px solid var(--vscode-widget-border, transparent); border-radius:10px; background:var(--vscode-input-background); }
+        .connection-panel p, .review-panel p { font-size:11px; overflow-wrap:anywhere; color:var(--vscode-descriptionForeground); white-space:pre-wrap; }
+        .connection-panel button { margin:3px 6px 0 0; }
+        .review-title, .review-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+        .review-title { flex-wrap:wrap; }
+        .review-path { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; font-family:var(--vscode-editor-font-family, monospace); }
+        .inline-diff { max-height:200px; overflow:auto; margin:10px 0; font-size:11px; font-family:var(--vscode-editor-font-family, monospace); }
+        .inline-diff > div { white-space:pre; min-width:max-content; padding:2px 4px; }
+        .inline-diff span { display:inline-block; width:16px; }
+        .added, .diff-add { color:var(--vscode-gitDecoration-addedResourceForeground, green); }
+        .removed, .diff-remove { color:var(--vscode-gitDecoration-deletedResourceForeground, red); }
+        .diff-add { background:var(--vscode-diffEditor-insertedTextBackground); }
+        .diff-remove { background:var(--vscode-diffEditor-removedTextBackground); }
+        .review-actions { justify-content:flex-end; }
+        .approve { border:0; border-radius:6px; padding:6px 12px; color:var(--vscode-button-foreground); background:var(--vscode-button-background); }
+        .review-note { margin-bottom:0; }
+        .command-output { margin-bottom:12px; color:var(--vscode-descriptionForeground); font-size:11px; }
+        .command-output pre { max-height:140px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 	</style>
 </head>
 <body>
@@ -110,10 +129,11 @@ export function createChatViewHtml(effectsUri?: string): string {
 	<div id="status" role="status"></div>
 	<div id="error" role="alert"></div>
 	<div class="composer">
-		<textarea id="prompt" rows="1" placeholder="Ask Local Copilot, or start with /code for a coding task" aria-label="Message"></textarea>
+		<textarea id="prompt" rows="1" placeholder="Ask Local Copilot to build, fix, or explain…" aria-label="Message"></textarea>
 		<div class="toolbar">
+            <label class="pick" title="Agent can use tools; Chat only answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="chat">Chat</option></select></label>
 			<label class="pick" title="Chat model"><span>Chat</span><select id="model" aria-label="Chat model"></select></label>
-			<label class="pick" title="Code model (used by /code and automatic delegation)"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
+			<label class="pick" title="Code model used in Agent mode"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
 			<button id="refresh" class="icon" type="button" title="Refresh models" aria-label="Refresh models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
 			<span class="spacer"></span>
 			<button id="send" class="send" type="button" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2z"/></svg></button>
@@ -122,7 +142,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 	<div id="effects"></div>
 	<script nonce="${nonce}">
 		const vscode = acquireVsCodeApi();
-		window.copilot = { post: message => vscode.postMessage(message), busy: false, recording: false, status: '' };
+		window.copilot = { post: message => vscode.postMessage(message), busy: false, recording: false, status: '', connection: 'loading', connectionError: '', review: null, commandOutput: '' };
 		function updateEffects() {
 			window.copilot.busy = busy;
 			window.copilot.status = statusElement.textContent;
@@ -283,7 +303,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 			hint.textContent = 'A focused space to think through ideas, understand your code, and build with local models.';
 			const suggestions = document.createElement('div');
 			suggestions.className = 'suggestions';
-			for (const label of ['Explain a piece of code', '/code Help me improve this project']) {
+			for (const label of ['Explain a piece of code', 'Help me improve this project']) {
 				const button = document.createElement('button');
 				button.textContent = label;
 				button.addEventListener('click', () => { promptInput.value = label + ' '; promptInput.dispatchEvent(new Event('input')); promptInput.focus(); });
@@ -303,7 +323,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 				addMessage('user', pending.prompt, undefined, false);
 				addMessage('assistant', '', undefined, true);
 			}
-			sendButton.disabled = busy || window.copilot.recording || !promptInput.value.trim();
+			sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim();
 			modelSelect.disabled = busy;
 			codeModelSelect.disabled = busy;
 			updateEffects();
@@ -325,13 +345,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 				option.textContent = name;
 				select.append(option);
 			}
-			if (!models.includes(defaultModel)) {
-				const option = document.createElement('option');
-				option.value = defaultModel;
-				option.textContent = defaultModel + ' (configured)';
-				select.append(option);
-			}
-			select.value = models.includes(selected) || selected === defaultModel ? selected : defaultModel;
+			select.value = models.includes(selected) ? selected : models.includes(defaultModel) ? defaultModel : models[0] || '';
 		}
 
 		function rememberModels() {
@@ -346,7 +360,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		function sendMessage() {
 			const prompt = promptInput.value.trim();
 			if (!prompt || busy) return;
-			if (window.copilot.recording) return;
+			if (window.copilot.recording || window.copilot.review || window.copilot.connection !== 'ready') return;
 			errorElement.textContent = '';
 			busy = true;
 			pending = { prompt };
@@ -360,7 +374,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 					prompt
 				});
 			} else {
-				vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt });
+				vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt, mode: document.getElementById('agentMode').value });
 			}
 			promptInput.value = '';
 			vscode.setState({ ...vscode.getState(), draft: '' });
@@ -372,7 +386,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refreshModels' }));
 		modelSelect.addEventListener('change', rememberModels);
 		codeModelSelect.addEventListener('change', rememberModels);
-		promptInput.addEventListener('input', () => { autosize(); sendButton.disabled = busy || window.copilot.recording || !promptInput.value.trim(); vscode.setState({ ...vscode.getState(), draft: promptInput.value }); });
+		promptInput.addEventListener('input', () => { autosize(); sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim(); vscode.setState({ ...vscode.getState(), draft: promptInput.value }); });
 		promptInput.value = savedState.draft || '';
 		autosize();
 		promptInput.addEventListener('keydown', event => {
@@ -383,13 +397,26 @@ export function createChatViewHtml(effectsUri?: string): string {
 		});
 		window.addEventListener('message', event => {
 			const message = event.data;
-			if (message.type === 'models') {
+			if (message.type === 'connection') {
+                window.copilot.connection = message.state;
+                window.copilot.connectionError = message.text || '';
+                sendButton.disabled = message.state !== 'ready' || busy || window.copilot.recording || !promptInput.value.trim();
+                updateEffects();
+            } else if (message.type === 'review') {
+                window.copilot.review = message.review;
+                updateEffects();
+            } else if (message.type === 'commandOutput') {
+                window.copilot.commandOutput = ((message.reset ? '' : window.copilot.commandOutput) + message.text).slice(-64000);
+                updateEffects();
+            } else if (message.type === 'models') {
 				fillModelSelect(modelSelect, message.models, message.defaultModel, savedState.model);
 				fillModelSelect(codeModelSelect, message.models, message.defaultCodeModel, savedState.codeModel);
 				rememberModels();
 				if (!message.models.length) setStatus('No models found; pull one with Ollama first.');
 			} else if (message.type === 'state') {
 				chat = message.chat;
+                window.copilot.review = message.review || null;
+                window.copilot.commandOutput = message.commandOutput || '';
 				busy = Boolean(message.busy);
 				pending = message.pending;
 				errorElement.textContent = '';
@@ -410,7 +437,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 				render();
 			}
 		});
-		vscode.postMessage({ type: 'ready' });
+		// The effects bundle requests initial state after installing its listeners.
 	</script>
 	${effectsUri ? `<script nonce="${nonce}" src="${escapeAttribute(effectsUri)}" defer></script>` : ''}
 </body>

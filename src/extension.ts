@@ -1,36 +1,15 @@
 import * as path from 'node:path';
 import { VoiceInput } from './voiceInput';
 import * as vscode from 'vscode';
-import { ReviewDecision, createChangeReviewer } from './changeReview';
+import { runAgent } from './agent';
+import { runCommand } from './commandRunner';
+import { fileReview, ReviewQueue } from './reviewQueue';
 import { createChatViewHtml } from './chatViewHtml';
 import { Chat, ChatStore, TranscriptEntry } from './chatStore';
 import { replaceEditorText } from './editorActions';
-import { chatWithDelegation, delegateCodingTask } from './orchestrator';
+import { delegateCodingTask } from './orchestrator';
 import { ChatMessage, OllamaClient } from './ollamaClient';
 import { OpenDocuments, WorkspaceTools, WriteProposal } from './workspaceTools';
-
-const PROPOSED_SCHEME = 'local-copilot-proposed';
-
-class ProposedContentProvider implements vscode.TextDocumentContentProvider {
-	private readonly contents = new Map<string, string>();
-	private counter = 0;
-
-	add(relativePath: string, content: string): vscode.Uri {
-		const uri = vscode.Uri.from({ scheme: PROPOSED_SCHEME, path: `/${relativePath}`, query: String(this.counter++) });
-		this.contents.set(uri.toString(), content);
-		return uri;
-	}
-
-	provideTextDocumentContent(uri: vscode.Uri): string {
-		return this.contents.get(uri.toString()) ?? '';
-	}
-
-	remove(uri: vscode.Uri): void {
-		this.contents.delete(uri.toString());
-	}
-}
-
-const proposedContent = new ProposedContentProvider();
 
 function samePath(a: string, b: string): boolean {
 	const normalize = (value: string) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
@@ -62,8 +41,11 @@ type WebviewMessage =
 	| { type: 'startVoice' }
 	| { type: 'stopVoice' }
 	| { type: 'refreshModels' }
+	| { type: 'reviewDecision'; id: string; approved: boolean }
+	| { type: 'stopTask' }
+	| { type: 'openSettings' }
 	| { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
-	| { type: 'sendMessage'; model: string; codeModel?: string; prompt: string }
+	| { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; mode?: 'agent' | 'chat' }
 	| { type: 'applyCode'; code: string }
 	| { type: 'copyCode'; code: string };
 
@@ -80,11 +62,16 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	private status = '';
 	private readonly voice: VoiceInput;
 	private readonly extensionUri: vscode.Uri;
+    private readonly reviews = new ReviewQueue(review => this.post({ type: 'review', review: review ?? null }));
+    private taskController?: AbortController;
+    private commandOutput = '';
+    private connection = 'loading';
+    private connectionError = '';
 
 	constructor(context: vscode.ExtensionContext) {
 		this.extensionUri = context.extensionUri;
 		this.voice = new VoiceInput(vscode.Uri.joinPath(context.extensionUri, 'resources', 'speech.ps1').fsPath, event => this.post(event));
-		context.subscriptions.push(this.voice);
+		context.subscriptions.push(this.voice, { dispose: () => this.stopTask() });
 		this.store = new ChatStore(context.globalState);
 		this.client = this.createClient();
 		vscode.workspace.onDidChangeConfiguration(event => {
@@ -110,6 +97,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		});
 		webviewView.onDidDispose(() => {
 			messageSubscription.dispose();
+            this.stopTask();
 			this.voice.stop();
 			if (this.view === webviewView) {
 				this.view = undefined;
@@ -118,6 +106,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	newChat(): void {
+        this.stopTask();
 		this.voice.stop();
 		this.store.create();
 		this.postState();
@@ -139,6 +128,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		};
 		refreshItems();
 		pick.onDidTriggerItemButton(event => {
+			this.stopTask();
 			this.store.delete(event.item.chatId);
 			refreshItems();
 			this.postState();
@@ -147,6 +137,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			const item = pick.selectedItems[0];
 			if (item) {
 				this.voice.stop();
+				this.stopTask();
 				this.store.select(item.chatId);
 				this.postState();
 				void vscode.commands.executeCommand('localCopilot.chat.focus');
@@ -171,7 +162,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			this.view.description = chat.transcript.length ? chat.title : undefined;
 		}
 		const pending = this.busy && this.pending?.chatId === chat.id ? { prompt: this.pending.prompt } : undefined;
-		this.post({ type: 'state', chat, busy: this.busy, pending, status: this.status });
+		this.post({ type: 'state', chat, busy: this.busy, pending, status: this.status, review: this.reviews.current ?? null, commandOutput: this.commandOutput });
 	}
 
 	private setStatus(text: string): void {
@@ -189,14 +180,20 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		const chat = this.store.active();
 		this.busy = true;
 		this.pending = { chatId: chat.id, prompt };
-		this.setStatus('Thinking…');
+		this.taskController = new AbortController();
+        this.commandOutput = '';
+        this.setStatus('Thinking…');
+        this.postState();
 		let failure: string | undefined;
 		try {
 			const turn = await work(chat);
 			this.store.appendTurn(chat.id, turn.transcript, turn.history);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
+            if (/does not support tools/i.test(failure)) failure += ' Choose a tool-capable Code model for Agent mode, or use Chat mode for this model.';
 		}
+		this.reviews.cancel();
+        this.taskController = undefined;
 		this.busy = false;
 		this.pending = undefined;
 		this.status = '';
@@ -215,8 +212,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 				case 'stopVoice':
 					this.voice.stop();
 					break;
-				case 'ready':
+				case 'reviewDecision':
+                    this.reviews.decide(message.id, message.approved === true);
+                    break;
+                case 'stopTask':
+                    this.stopTask();
+                    break;
+                case 'openSettings':
+                    await vscode.commands.executeCommand('workbench.action.openSettings', 'localCopilot.ollamaBaseUrl');
+                    break;
+                case 'ready':
 					this.postState();
+                    this.post({ type: 'connection', state: this.connection, text: this.connectionError });
 					await this.refreshModels();
 					break;
 				case 'refreshModels':
@@ -227,28 +234,31 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 					if (!prompt || !message.model.trim()) {
 						throw new Error('Choose a model and enter a message before sending.');
 					}
-					const configuration = vscode.workspace.getConfiguration('localCopilot');
-					const codeModel = message.codeModel?.trim();
-					const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-					const canDelegate = configuration.get<boolean>('autoDelegate', true) && Boolean(codeModel) && Boolean(root);
-					await this.runTurn(prompt, async chat => {
-						const result = await chatWithDelegation({
-							client: this.client,
-							chatModel: message.model.trim(),
-							codeModel: codeModel ?? '',
-							prompt,
-							history: chat.history,
-							createTools: canDelegate && root ? () => this.createTools(root) : undefined,
-							onProgress: text => this.setStatus(text)
-						});
-						return {
-							transcript: [
-								{ role: 'user', content: prompt },
-								{ role: 'assistant', content: result.content, changes: result.changes.length ? result.changes : undefined }
-							],
-							history: result.historyAdditions
-						};
-					});
+
+                    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const agentMode = message.mode !== 'chat';
+                    if (agentMode && (!root || !vscode.workspace.isTrusted)) {
+                        throw new Error('Open and trust a workspace folder to use Agent mode, or select Chat for conversation only.');
+                    }
+                    const model = agentMode ? message.codeModel?.trim() : message.model.trim();
+                    if (!model) throw new Error('Select a code model with tool-calling support for Agent mode.');
+                    await this.runTurn(prompt, async chat => {
+                        const tools = agentMode ? this.createTools(root!) : undefined;
+                        let content: string;
+                        try {
+                            content = tools
+                                ? (await runAgent({ client: this.client, model, task: prompt, history: chat.history.slice(-20), tools,
+                                    signal: this.taskController!.signal, onProgress: text => this.setStatus(text) })).summary
+                                : await this.client.chat(model, prompt, [...chat.history]);
+                        } catch (error) {
+                            if (!tools?.changes.length) throw error;
+                            content = `Task incomplete: ${error instanceof Error ? error.message : String(error)}. Previously kept file changes remain applied.`;
+                        }
+                        return {
+                            transcript: [{ role: 'user', content: prompt }, { role: 'assistant', content, changes: tools?.changes }],
+                            history: [{ role: 'user', content: prompt }, { role: 'assistant', content }]
+                        };
+                    });
 					break;
 				}
 				case 'delegate': {
@@ -270,6 +280,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 							task,
 							history: chat.history,
 							tools: this.createTools(root),
+                            signal: this.taskController!.signal,
 							onProgress: text => this.setStatus(text)
 						});
 						return {
@@ -296,56 +307,88 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
-	private createTools(root: string): WorkspaceTools {
-		const requireReview = vscode.workspace.getConfiguration('localCopilot').get<boolean>('reviewChanges', true);
-		const reviewer = createChangeReviewer({
-			reviewWrite: proposal => this.reviewWrite(root, proposal),
-			confirmDelete: async relativePath => await vscode.window.showWarningMessage(
-				`Allow the code model to delete ${relativePath}?`,
-				{ modal: true },
-				'Delete'
-			) === 'Delete'
-		}, requireReview);
-		return new WorkspaceTools(root, { ...reviewer, openDocuments: unsavedDocuments });
-	}
 
-	private async reviewWrite(root: string, proposal: WriteProposal): Promise<ReviewDecision> {
-		const proposedUri = proposedContent.add(proposal.path, proposal.after);
-		const placeholderUri = proposal.before === undefined ? proposedContent.add(proposal.path, '') : undefined;
-		const originalUri = placeholderUri ?? vscode.Uri.joinPath(vscode.Uri.file(root), proposal.path);
-		try {
-			await vscode.commands.executeCommand(
-				'vscode.diff',
-				originalUri,
-				proposedUri,
-				`${proposal.path} (proposed change)`,
-				{ preview: true, preserveFocus: true }
-			);
-			// Modal so the prompt cannot disappear into the notification center and leave the code model waiting forever.
-			const choice = await vscode.window.showInformationMessage(
-				`Local Copilot wants to ${proposal.before === undefined ? 'create' : 'modify'} ${proposal.path}.`,
-				{ modal: true, detail: 'Review the diff, then choose Keep to write it. Cancel undoes the change.' },
-				'Keep',
-				'Keep All'
-			);
-			return choice === 'Keep' ? 'keep' : choice === 'Keep All' ? 'keepAll' : 'undo';
-		} finally {
-			proposedContent.remove(proposedUri);
-			if (placeholderUri) {
-				proposedContent.remove(placeholderUri);
-			}
-		}
-	}
+    private stopTask(): void {
+        this.taskController?.abort(new Error('Task stopped by the user.'));
+        this.reviews.cancel();
+        if (this.busy) this.client.cancelRequests();
+    }
 
-	private async refreshModels(): Promise<void> {
-		const models = await this.client.listModels();
-		this.post({
-			type: 'models',
-			models: models.map(model => model.name).filter((name): name is string => Boolean(name)),
-			defaultModel: vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'qwen2.5-coder:7b'),
-			defaultCodeModel: vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'qwen2.5-coder:14b')
-		});
-	}
+    private createTools(root: string): WorkspaceTools {
+        const signal = this.taskController?.signal;
+        const assertActive = () => {
+            signal?.throwIfAborted();
+            if (!vscode.workspace.isTrusted) throw new Error('Workspace trust is required for agent tools.');
+        };
+        return new WorkspaceTools(root, {
+            assertActive,
+            openDocuments: unsavedDocuments,
+            confirmWrite: proposal => this.reviewWrite(proposal),
+            confirmDelete: (file, before) => this.reviews.request(fileReview('delete', file, before ?? '', '')),
+            runCommand: async (command, cwd) => {
+                assertActive();
+                if (!command.trim() || command.length > 10000) throw new Error('Command must contain 1–10000 characters.');
+                const shell = process.platform === 'win32' ? 'Windows PowerShell' : '/bin/sh';
+                const approved = await this.reviews.request({ kind: 'command', title: command,
+                    detail: `${shell} · ${cwd}\nRuns with your account permissions. Commands can modify files; their changes are not covered by Keep/Revert.` });
+                assertActive();
+                if (!approved) return 'The user rejected this command. Do not run it or an alternative without a new user request.';
+                this.commandOutput = '';
+                this.post({ type: 'commandOutput', text: '', reset: true });
+                this.setStatus('Running approved command…');
+                const result = await runCommand(command, cwd, signal ?? new AbortController().signal, text => {
+                    this.commandOutput = (this.commandOutput + text).slice(-64000);
+                    this.post({ type: 'commandOutput', text });
+                });
+                this.commandOutput = result;
+                this.post({ type: 'commandOutput', text: result, reset: true });
+                return result;
+            },
+            editorAction: async (action, absolute) => {
+                assertActive();
+                if (action === 'editor_context') {
+                    const editor = vscode.window.activeTextEditor;
+                    if (!editor || !vscode.workspace.getWorkspaceFolder(editor.document.uri)
+                        || !samePath(vscode.workspace.getWorkspaceFolder(editor.document.uri)!.uri.fsPath, root)) return 'No active editor in this workspace.';
+                    return JSON.stringify({ path: path.relative(root, editor.document.uri.fsPath),
+                        selection: editor.document.getText(editor.selection).slice(0, 20000),
+                        content: editor.document.getText().slice(0, 50000), dirty: editor.document.isDirty });
+                }
+                const uri = vscode.Uri.file(absolute!);
+                if (action === 'open_file') {
+                    await vscode.window.showTextDocument(uri, { preview: true, preserveFocus: true });
+                    return 'Opened file in VS Code.';
+                }
+                return JSON.stringify(vscode.languages.getDiagnostics(uri).slice(0, 100).map(d => ({
+                    line: d.range.start.line + 1, severity: vscode.DiagnosticSeverity[d.severity], message: d.message
+                })));
+            }
+        });
+    }
+
+    private reviewWrite(proposal: WriteProposal): Promise<boolean> {
+        return this.reviews.request(fileReview('write', proposal.path, proposal.before ?? '', proposal.after));
+    }
+
+
+    private async refreshModels(): Promise<void> {
+        this.connection = 'loading';
+        this.connectionError = '';
+        this.post({ type: 'connection', state: 'loading' });
+        try {
+            const models = await this.client.listModels();
+            this.connection = models.length ? 'ready' : 'empty';
+            this.post({ type: 'models', models: models.map(model => model.name).filter(Boolean),
+                defaultModel: vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'qwen2.5-coder:7b'),
+                defaultCodeModel: vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'qwen2.5-coder:14b') });
+            this.post({ type: 'connection', state: this.connection,
+                text: models.length ? '' : 'Ollama is connected but has no models. Pull a tool-capable coding model, then retry.' });
+        } catch (error) {
+            this.connection = 'error';
+            this.connectionError = error instanceof Error ? error.message : String(error);
+            this.post({ type: 'connection', state: 'error', text: this.connectionError });
+        }
+    }
 
 	private async applyToActiveEditor(code: string): Promise<void> {
 		const editor = vscode.window.activeTextEditor;
@@ -353,9 +396,22 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			throw new Error('Open a text editor before applying a response.');
 		}
 
+        if (this.busy || this.reviews.current) {
+            this.setStatus('Finish or stop the current task before applying another response.');
+            return;
+        }
+        const before = editor.document.getText();
+        if (Buffer.byteLength(before) > 200000 || Buffer.byteLength(code) > 200000) throw new Error('File is too large for inline review.');
+        const selection = editor.selection;
+        const start = selection.isEmpty ? 0 : editor.document.offsetAt(selection.start);
+        const end = selection.isEmpty ? before.length : editor.document.offsetAt(selection.end);
+        const after = before.slice(0, start) + code + before.slice(end);
+        if (!await this.reviewWrite({ path: vscode.workspace.asRelativePath(editor.document.uri), before, after })) return;
+        if (editor.document.isClosed || editor.document.getText() !== before) throw new Error('The editor changed during review. Apply again to review the current version.');
+
 		await replaceEditorText(
 			editor.document,
-			editor.selection,
+			selection,
 			(start, end) => new vscode.Range(start, end),
 			(range, text) => editor.edit(editBuilder => editBuilder.replace(range, text)),
 			code
@@ -372,7 +428,6 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 export function activate(context: vscode.ExtensionContext): void {
 	const provider = new ChatViewProvider(context);
 	context.subscriptions.push(
-		vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, proposedContent),
 		vscode.window.registerWebviewViewProvider('localCopilot.chat', provider, {
 			webviewOptions: { retainContextWhenHidden: true }
 		}),

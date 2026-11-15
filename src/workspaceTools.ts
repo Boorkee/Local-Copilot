@@ -21,11 +21,14 @@ export type OpenDocuments = {
 };
 
 export type WorkspaceToolsOptions = {
-	confirmDelete?: (relativePath: string) => Promise<boolean>;
+	confirmDelete?: (relativePath: string, before?: string) => Promise<boolean>;
 	/** When set, every write must be approved before it touches disk. */
 	confirmWrite?: (proposal: WriteProposal) => Promise<boolean>;
 	/** Lets the tools see and update unsaved editor buffers instead of clobbering them on disk. */
 	openDocuments?: OpenDocuments;
+    runCommand?: (command: string, cwd: string) => Promise<string>;
+    editorAction?: (action: string, absolute?: string) => Promise<string>;
+    assertActive?: () => void;
 };
 
 const MAX_READ_BYTES = 200_000;
@@ -33,6 +36,10 @@ const MAX_LIST_ENTRIES = 500;
 const SKIPPED_DIRECTORIES = new Set(['node_modules', '.git', 'out', 'out-test']);
 
 export const workspaceToolDefinitions: ToolDefinition[] = [
+    { type: 'function', function: { name: 'run_command', description: 'Run a shell command, build, or test in the workspace. Always requires explicit user approval. Commands run in Windows PowerShell on Windows and /bin/sh elsewhere. Use noninteractive commands.', parameters: { type: 'object', properties: { command: { type: 'string' }, cwd: { type: 'string', description: 'Workspace-relative directory; defaults to root.' } }, required: ['command'] } } },
+    { type: 'function', function: { name: 'editor_context', description: 'Read the active VS Code file and selection.', parameters: { type: 'object', properties: {} } } },
+    { type: 'function', function: { name: 'get_diagnostics', description: 'Read VS Code errors and warnings for a workspace file.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
+    { type: 'function', function: { name: 'open_file', description: 'Open a workspace file in VS Code.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
 	{
 		type: 'function',
 		function: {
@@ -100,11 +107,25 @@ export class WorkspaceTools {
 
 	async execute(name: string, rawArguments: Record<string, unknown> | string): Promise<string> {
 		try {
+            this.options.assertActive?.();
 			const args = typeof rawArguments === 'string'
 				? (JSON.parse(rawArguments || '{}') as Record<string, unknown>)
 				: rawArguments ?? {};
 			switch (name) {
-				case 'list_files':
+				case 'run_command': {
+                    if (!this.options.runCommand) throw new Error('Command execution is unavailable in this host.');
+                    const { absolute } = await this.resolve(args.cwd === undefined ? '.' : this.requireString(args.cwd, 'cwd'));
+                    if (!(await fs.stat(absolute)).isDirectory()) throw new Error('Command cwd must be a directory.');
+                    return await this.options.runCommand(this.requireString(args.command, 'command'), absolute);
+                }
+                case 'editor_context':
+                case 'get_diagnostics':
+                case 'open_file': {
+                    if (!this.options.editorAction) throw new Error('VS Code editor tools are unavailable in this host.');
+                    const absolute = name === 'editor_context' ? undefined : (await this.resolve(this.requireString(args.path, 'path'))).absolute;
+                    return await this.options.editorAction(name, absolute);
+                }
+                case 'list_files':
 					return await this.listFiles(args.path === undefined ? '.' : this.requireString(args.path, 'path'));
 				case 'read_file':
 					return await this.readFile(this.requireString(args.path, 'path'));
@@ -163,6 +184,7 @@ export class WorkspaceTools {
 	async writeFile(file: string, content: string): Promise<string> {
 		const { absolute, rootReal } = await this.resolve(file, true);
 		const relative = this.display(rootReal, absolute);
+        if (Buffer.byteLength(content) > MAX_READ_BYTES) throw new Error('Write is too large; keep reviewed files under 200 KB.');
 		if (this.options.confirmWrite) {
 			let before: string | undefined = this.options.openDocuments?.readUnsaved(absolute);
 			try {
@@ -170,7 +192,8 @@ export class WorkspaceTools {
 				if (!stat.isFile()) {
 					throw new Error(`${relative} is not a file.`);
 				}
-				before ??= stat.size <= MAX_READ_BYTES ? await fs.readFile(absolute, 'utf8') : '';
+				if (stat.size > MAX_READ_BYTES) throw new Error('File is too large to review safely.');
+                before ??= await fs.readFile(absolute, 'utf8');
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
 					throw error;
@@ -179,7 +202,14 @@ export class WorkspaceTools {
 			if (!(await this.options.confirmWrite({ path: relative, before, after: content }))) {
 				return `The user rejected the change to ${relative}; it was not written.`;
 			}
+            this.options.assertActive?.();
+            await this.resolve(file, true);
+            let current = this.options.openDocuments?.readUnsaved(absolute);
+            try { current ??= await fs.readFile(absolute, 'utf8'); }
+            catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+            if (current !== before) throw new Error(`${relative} changed while you reviewed it. Read it again before editing.`);
 		}
+        this.options.assertActive?.();
 		if (!(await this.options.openDocuments?.writeUnsaved(absolute, content))) {
 			await fs.mkdir(path.dirname(absolute), { recursive: true });
 			await fs.writeFile(absolute, content, 'utf8');
@@ -195,9 +225,15 @@ export class WorkspaceTools {
 		if (!stat.isFile()) {
 			throw new Error(`${relative} is not a file; only single files can be deleted.`);
 		}
-		if (!this.options.confirmDelete || !(await this.options.confirmDelete(relative))) {
+		if (this.options.openDocuments?.readUnsaved(absolute) !== undefined) throw new Error('Save or discard unsaved edits before deleting this file.');
+        if (stat.size > MAX_READ_BYTES) throw new Error('File is too large to review safely.');
+        const before = await fs.readFile(absolute, 'utf8');
+		if (!this.options.confirmDelete || !(await this.options.confirmDelete(relative, before))) {
 			return `Deletion of ${relative} was not approved.`;
 		}
+		this.options.assertActive?.();
+        await this.resolve(file, true);
+        if (this.options.openDocuments?.readUnsaved(absolute) !== undefined || await fs.readFile(absolute, 'utf8') !== before) throw new Error('File changed while deletion was being reviewed.');
 		await fs.unlink(absolute);
 		this.changes.push({ action: 'delete', path: relative });
 		return `Deleted ${relative}.`;
@@ -245,7 +281,7 @@ export class WorkspaceTools {
 			if (relative === '') {
 				throw new Error('The workspace root cannot be modified.');
 			}
-			if (relative.split(path.sep)[0].toLowerCase() === '.git') {
+			if ([...relative.split(path.sep), ...path.relative(rootReal, real).split(path.sep)].some(part => part.toLowerCase() === '.git')) {
 				throw new Error('The .git directory cannot be modified.');
 			}
 		}
