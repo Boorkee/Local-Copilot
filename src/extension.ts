@@ -378,11 +378,11 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         try {
             const models = await this.client.listModels();
             this.connection = models.length ? 'ready' : 'empty';
+            this.connectionError = models.length ? '' : 'Ollama is connected but has no models. Pull a tool-capable coding model, then retry.';
             this.post({ type: 'models', models: models.map(model => model.name).filter(Boolean),
                 defaultModel: vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'qwen2.5-coder:7b'),
                 defaultCodeModel: vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'qwen2.5-coder:14b') });
-            this.post({ type: 'connection', state: this.connection,
-                text: models.length ? '' : 'Ollama is connected but has no models. Pull a tool-capable coding model, then retry.' });
+            this.post({ type: 'connection', state: this.connection, text: this.connectionError });
         } catch (error) {
             this.connection = 'error';
             this.connectionError = error instanceof Error ? error.message : String(error);

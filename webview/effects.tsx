@@ -126,7 +126,7 @@ function Effects() {
             {review.kind !== 'command' && <p className="review-note">Proposed change · nothing is written until you keep it.</p>}
         </section>}
         <BorderBeam className="composer-beam" borderRadius={12} glowSize={0.6} size="sm" colorVariant="ocean" strength={busy ? 0.7 : 0.4} active={visible && !reduced} theme={dark ? 'dark' : 'light'}>
-            <VoiceBeam className="composer-voice" level={() => level.current} colorVariant="ocean" active={listening && visible && !reduced} theme={dark ? 'dark' : 'light'} strength={0.7}>
+            <VoiceBeam className="composer-voice" level={getLevel} colorVariant="ocean" active={listening && visible && !reduced} theme={dark ? 'dark' : 'light'} strength={0.7}>
                 <div ref={slot} className="composer-slot"/>
             </VoiceBeam>
         </BorderBeam>
