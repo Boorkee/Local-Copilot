@@ -30,22 +30,30 @@ Chats are saved automatically and survive moving the view, reloading, and restar
 
 When changing models, the extension checks Ollama's loaded-model list and sends an empty `/api/generate` request with `keep_alive: 0` for each loaded model before it starts the selected model. This releases the previous model from VRAM rather than relying on Ollama's keep-alive timeout.
 
-## Automatic delegation and change review
+## Agent mode and inline approvals
 
-In normal chat the chat model decides for itself whether to hand work to the code model. It is given a `delegate_coding_task` tool and writes the task plus any context it needs; the extension also forwards the recent conversation. The chat model is then unloaded, the code model runs, and the chat model is reloaded with the report. Turn this off with `localCopilot.autoDelegate`. Auto-delegation needs a chat model that supports tool calling (small models such as 1.5B may not call it reliably; `qwen2.5:3b` did in testing). Models without tool support fall back to plain chat, and `/code` always works.
+**Agent** is the default mode. Ask normally: “fix this bug,” “create a settings page,” or “run the tests.” The selected **Code** model receives workspace tools directly; no `/code` prefix or small-model routing decision is required. **Chat** uses the Chat model for conversation without tools.
 
-Before the code model writes a file, a diff opens (like Copilot) and a prompt offers **Keep** or **Keep All** (for the rest of that task). Cancelling or closing the prompt undoes the change: nothing is written and the model is told it was rejected. Deleting always asks. Disable write review with `localCopilot.reviewChanges`. The `npm run handoff` script writes without review.
+Agent tools can list, read, create, edit, and delete workspace files, inspect the active editor and selection, open files, read VS Code diagnostics, and run builds/tests or other shell commands. The extension supplies these tools and executes the model's requests; Ollama itself does not have IDE access. Choose an installed model that supports [Ollama tool calling](https://docs.ollama.com/capabilities/tool-calling), open and trust a workspace, and select that model in the Code picker. Model quality still determines how reliably it plans and uses tools; this does not implement every GitHub Copilot feature.
 
-## Delegating coding tasks (chat model → code model → chat model)
+Every proposed file write or deletion shows a review card immediately above the input, with green additions, red removals, and +/− line counts. **Keep** applies the proposed write; **Revert** rejects it without changing the file. Deletes have their own approval. Files changed by you while a review is open are not overwritten. The old `reviewChanges` and `autoDelegate` sidebar settings have been retired: sidebar file reviews are always required and Agent mode is direct.
 
-Type `/code <task>` in the sidebar, or run the standalone script:
+Every shell command shows its exact text, shell, and working directory and waits for **Run command** or **Reject**. Commands run in Windows PowerShell on Windows and `/bin/sh` elsewhere, with your account permissions; they are not sandboxed. Shell side effects are not covered by the file-tool Keep/Revert controls. Output and exit status return to the model and appear in an expandable output area. Commands are noninteractive, limited to two minutes and 64 KB of output. **Stop task** cancels pending approvals and terminates the running command process tree. Changing chats or closing the view also cancels the active task.
+
+The older `/code` handoff is still accepted for compatibility. The standalone CLI remains available:
 
 ```
 npm run compile
 npm run handoff -- "your task" --workspace <dir> --chat-model <name> --code-model <name> [--allow-delete]
 ```
 
-The chat model is unloaded, the code model runs with read/list/write/delete tools confined to the workspace, then the chat model is reloaded with a summary of what changed. You can keep talking to the chat model afterwards without it calling the code model again. Set the code model with `localCopilot.codeModel`. The code model must support Ollama tool calling. Deletes need confirmation (a modal in VS Code, `--allow-delete` in the CLI).
+The CLI does not provide the sidebar's command execution or IDE tools.
+
+## Ollama connection troubleshooting
+
+A connection failure while loading the model list leaves the model pickers empty. Start the Ollama application (or `ollama serve` if it is not running), then choose **Retry connection**. `ollama list` shows installed models. The default server is `http://127.0.0.1:11434`; **Connection settings** opens `localCopilot.ollamaBaseUrl`.
+
+Requests originate from the VS Code extension host. When using WSL, SSH, or containers, `127.0.0.1` refers to that host, not necessarily the Windows computer running Ollama. Configure an address reachable from that environment. The sidebar distinguishes connection errors, an empty model list, and a connected server; retries do not discard your draft.
 
 ## Applying a response
 

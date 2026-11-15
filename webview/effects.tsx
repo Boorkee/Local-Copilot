@@ -4,10 +4,11 @@ import { BorderBeam } from 'border-beam';
 import { ThinkingOrb } from 'thinking-orbs';
 import { Liquid } from 'liquid-gooey';
 import { VoiceBeam } from 'voice-glow';
+import type { ReviewCard } from '../src/reviewQueue';
 
 declare global {
     interface Window {
-        copilot: { post: (message: object) => void; busy: boolean; recording: boolean; status: string; };
+        copilot: { post: (message: object) => void; busy: boolean; recording: boolean; status: string; connection: string; connectionError: string; review: ReviewCard | null; commandOutput: string; };
     }
 }
 const composer = document.querySelector<HTMLElement>('.composer')!;
@@ -18,6 +19,10 @@ function Effects() {
     const level = useRef(0);
     const [busy, setBusy] = useState(window.copilot.busy);
     const [status, setStatus] = useState(window.copilot.status);
+    const [connection, setConnection] = useState(window.copilot.connection);
+    const [connectionError, setConnectionError] = useState(window.copilot.connectionError);
+    const [review, setReview] = useState(window.copilot.review);
+    const [output, setOutput] = useState(window.copilot.commandOutput);
     const [mode, setMode] = useState<'type' | 'speak'>('type');
     const [voice, setVoice] = useState('idle');
     const [hint, setHint] = useState('Uses your default microphone. Speech stays on this Windows PC.');
@@ -29,12 +34,12 @@ function Effects() {
     useEffect(() => {
         window.copilot.recording = listening || starting;
         const send = document.querySelector<HTMLButtonElement>('#send')!;
-        send.disabled = busy || listening || starting || !prompt.value.trim();
+        send.disabled = window.copilot.connection !== 'ready' || Boolean(review) || busy || listening || starting || !prompt.value.trim();
         send.title = listening || starting ? 'Stop recording to review and send' : 'Send (Enter)';
-    }, [listening, starting, busy]);
+    }, [listening, starting, busy, connection, review]);
     useLayoutEffect(() => { slot.current?.append(composer); }, []);
     useEffect(() => {
-        const update = () => { setBusy(window.copilot.busy); setStatus(window.copilot.status); };
+        const update = () => { setBusy(window.copilot.busy); setStatus(window.copilot.status); setConnection(window.copilot.connection); setConnectionError(window.copilot.connectionError); setReview(window.copilot.review); setOutput(window.copilot.commandOutput); };
         const onVisibility = () => {
             setVisible(!document.hidden);
             if (document.hidden) window.copilot.post({ type: 'stopVoice' });
@@ -62,6 +67,7 @@ function Effects() {
         window.addEventListener('message', onVoice);
         document.addEventListener('visibilitychange', onVisibility);
         media.addEventListener('change', motion);
+        window.copilot.post({ type: 'ready' });
         return () => {
             theme.disconnect();
             window.removeEventListener('copilot-state', update);
@@ -78,12 +84,19 @@ function Effects() {
     const orbState = /load|connect|switch/i.test(status) ? 'connecting' : /code|writ|tool|read/i.test(status) ? 'working' : 'solving';
     return <>
         <div className="activity" aria-hidden="true">
-            {busy ? <><ThinkingOrb state={orbState} size={20} theme={dark ? 'dark' : 'light'} paused={reduced || !visible}/><span>{status || 'Thinking…'}</span></> : <><span className="ready-dot"/><span>{listening ? 'Listening · local dictation' : 'Ready when you are'}</span></>}
+            {busy ? <><ThinkingOrb state={orbState} size={20} theme={dark ? 'dark' : 'light'} paused={reduced || !visible}/><span>{status || 'Thinking…'}</span></> : <><span className="ready-dot"/><span>{listening ? 'Listening · local dictation' : connection === 'ready' ? 'Ready when you are' : connection === 'loading' ? 'Connecting to Ollama…' : 'Ollama unavailable'}</span></>}
+            {busy && <button className="record" onClick={() => window.copilot.post({ type: 'stopTask' })}>Stop task</button>}
         </div>
+        {(connection === 'error' || connection === 'empty') && <div className="connection-panel" role="alert">
+            <strong>{connection === 'empty' ? 'No models installed' : 'Cannot connect to Ollama'}</strong>
+            <p>{connectionError}</p>
+            <button className="record" onClick={() => window.copilot.post({ type: 'refreshModels' })}>Retry connection</button>
+            <button className="record" onClick={() => window.copilot.post({ type: 'openSettings' })}>Connection settings</button>
+        </div>}
         <div className="mode-row">
             <div className="mode-switch" role="group" aria-label="Input mode">
                 {!reduced && visible && <Liquid className="mode-liquid" fill="var(--vscode-button-background)" blur={5} contrast={20} aria-hidden="true">
-                    <Liquid.Item x={mode === 'type' ? 0 : 76} effect="move" transition="smooth"><div className="mode-blob"/></Liquid.Item>
+                    <Liquid.Item effect="move" radius={16}><div className="mode-blob" style={{ transform: `translateX(${mode === 'type' ? 0 : 76}px)` }}/></Liquid.Item>
                 </Liquid>}
                 <button className={reduced ? 'mode plain' : 'mode'} aria-pressed={mode === 'type'} onClick={() => changeMode('type')}>Type</button>
                 <button className={reduced ? 'mode plain' : 'mode'} aria-pressed={mode === 'speak'} onClick={() => changeMode('speak')}>Speak</button>
@@ -98,12 +111,24 @@ function Effects() {
                 }}>{listening || starting ? 'Stop' : 'Start listening'}</button></div>
             <p role={voice === 'error' ? 'alert' : 'status'}>{hint}</p>
         </div>}
-        <BorderBeam className="composer-beam" size="sm" colorVariant="ocean" strength={busy ? 0.7 : 0.4} active={visible && !reduced} theme={dark ? 'dark' : 'light'}>
+        {output && <details className="command-output"><summary>Command output</summary><pre>{output}</pre></details>}
+        {review && <section className="review-panel" aria-label="Agent approval" role="region" key={review.id}>
+            <div className="review-title"><strong>{review.kind === 'command' ? 'Run command?' : review.kind === 'delete' ? 'Delete file?' : 'Review file change'}</strong>
+                {review.kind !== 'command' && <span><b className="added">+{review.added}</b> <b className="removed">−{review.removed}</b></span>}</div>
+            <pre className="review-path">{review.title}</pre>
+            {review.detail && <p>{review.detail}</p>}
+            {review.lines && <div className="inline-diff" tabIndex={0} aria-label="Proposed changes">{review.lines.map((line, i) => <div key={i} className={`diff-${line.kind}`}><span aria-hidden="true">{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span>{line.text || ' '}</div>)}</div>}
+            <div className="review-actions">
+                <button className="approve" onClick={() => window.copilot.post({ type: 'reviewDecision', id: review.id, approved: true })}>{review.kind === 'command' ? 'Run command' : review.kind === 'delete' ? 'Delete' : 'Keep'}</button>
+                <button className="record" onClick={() => window.copilot.post({ type: 'reviewDecision', id: review.id, approved: false })}>{review.kind === 'command' ? 'Reject' : 'Revert'}</button>
+            </div>
+            {review.kind !== 'command' && <p className="review-note">Proposed change · nothing is written until you keep it.</p>}
+        </section>}
+        <BorderBeam className="composer-beam" borderRadius={12} glowSize={0.6} size="sm" colorVariant="ocean" strength={busy ? 0.7 : 0.4} active={visible && !reduced} theme={dark ? 'dark' : 'light'}>
             <VoiceBeam className="composer-voice" level={() => level.current} colorVariant="ocean" active={listening && visible && !reduced} theme={dark ? 'dark' : 'light'} strength={0.7}>
                 <div ref={slot} className="composer-slot"/>
             </VoiceBeam>
         </BorderBeam>
-        <div className="input-hint">Enter to send <span>·</span> Shift + Enter for a new line</div>
     </>;
 }
 createRoot(document.getElementById('effects')!).render(<Effects/>);

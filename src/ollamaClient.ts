@@ -46,6 +46,7 @@ type OllamaRunningResponse = {
 };
 
 export class OllamaClient {
+	private readonly requests = new Set<AbortController>();
 	private activeModel: string | undefined;
 	private chatQueue: Promise<void> = Promise.resolve();
 
@@ -54,6 +55,8 @@ export class OllamaClient {
 		private readonly timeoutMs: number,
 		private readonly fetcher: typeof fetch = fetch
 	) {}
+
+	cancelRequests(): void { for (const request of this.requests) request.abort(); }
 
 	async listModels(): Promise<OllamaModel[]> {
 		const result = await this.request<{ models?: OllamaModel[] }>('/api/tags');
@@ -137,7 +140,9 @@ export class OllamaClient {
 	private async request<T>(path: string, body?: unknown): Promise<T> {
 		const url = new URL(path, `${this.baseUrl.replace(/\/+$/, '')}/`);
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+		this.requests.add(controller);
+        let timedOut = false;
+		const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, this.timeoutMs);
 
 		try {
 			const response = await this.fetcher(url, {
@@ -159,11 +164,15 @@ export class OllamaClient {
 			return result as T;
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
-				throw new Error(`Ollama request timed out after ${this.timeoutMs} ms.`);
+				throw new Error(timedOut ? `Ollama request timed out after ${this.timeoutMs} ms.` : 'Ollama request cancelled.');
 			}
+            if (error instanceof TypeError) {
+                throw new Error(`Cannot reach Ollama at ${url.origin}. Start Ollama and retry. If VS Code runs in WSL, SSH, or a container, set localCopilot.ollamaBaseUrl to an address reachable from that extension host.`);
+            }
 			throw error;
 		} finally {
 			clearTimeout(timeout);
+            this.requests.delete(controller);
 		}
 	}
 }

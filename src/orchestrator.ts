@@ -41,6 +41,7 @@ export type DelegationOptions = {
 	tools: WorkspaceTools;
 	systemPrompt?: string;
 	maxSteps?: number;
+    signal?: AbortSignal;
 	onProgress?: (message: string) => void;
 };
 
@@ -73,6 +74,7 @@ export async function delegateCodingTask(options: DelegationOptions): Promise<De
 			task: options.codeTask ?? options.task,
 			tools: options.tools,
 			maxSteps: options.maxSteps,
+            signal: options.signal,
 			onProgress: options.onProgress
 		});
 	} catch (error) {
@@ -83,6 +85,7 @@ export async function delegateCodingTask(options: DelegationOptions): Promise<De
 		};
 	}
 
+	options.signal?.throwIfAborted();
 	const changes = [...options.tools.changes];
 	const handoff = [
 		`I delegated this task to the coding model (${options.codeModel}): ${options.task}`,

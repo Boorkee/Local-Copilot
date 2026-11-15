@@ -2,7 +2,7 @@
   "name": "local-copilot",
   "displayName": "Local Copilot",
   "description": "A VS Code chat sidebar powered by local Ollama models.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "local-copilot",
   "license": "UNLICENSED",
   "engines": {
@@ -80,16 +80,6 @@
           "default": "qwen2.5-coder:14b",
           "description": "Larger coding model used by /code. It must support Ollama tool calling."
         },
-        "localCopilot.autoDelegate": {
-          "type": "boolean",
-          "default": true,
-          "description": "Let the chat model decide on its own to hand coding tasks to the code model. Requires a chat model with tool-calling support; /code always works."
-        },
-        "localCopilot.reviewChanges": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a diff and ask for approval before the code model writes a file. Deleting a file always asks."
-        },
         "localCopilot.requestTimeoutMs": {
           "type": "number",
           "default": 300000,
@@ -112,6 +102,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
+    "@types/diff": "^7.0.2",
     "@types/node": "^20.12.12",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -121,10 +112,17 @@
   },
   "dependencies": {
     "border-beam": "^1.4.1",
+    "diff": "^9.0.0",
     "liquid-gooey": "^0.2.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "thinking-orbs": "^0.3.2",
     "voice-glow": "^0.3.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Chat remains available; agent tools and commands require a trusted workspace."
+    }
   }
 }
