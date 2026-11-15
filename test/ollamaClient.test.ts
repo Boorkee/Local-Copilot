@@ -77,6 +77,12 @@ describe('Ollama model capabilities', () => {
         const { client } = createClient(async () => jsonResponse({}));
         assert.equal(await client.inspectModel('unknown:7b'), 'unknown');
     });
+
+    it('excludes embedding-only models from chat and agent routing', async () => {
+        const { client } = createClient(async () => jsonResponse({ capabilities: ['embedding'] }));
+        assert.equal(await client.inspectModel('vector-model'), 'unsupported');
+        assert.equal(client.cachedCapability('vector-model'), 'unsupported');
+    });
 });
 
 describe('OllamaClient.chat and streaming', () => {

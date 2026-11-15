@@ -107,7 +107,7 @@ class ChatAccumulator {
 
 export class OllamaClient {
 	private readonly requests = new Set<AbortController>();
-    private readonly capabilities = new Map<string, 'tools' | 'chat' | 'unknown'>();
+	private readonly capabilities = new Map<string, 'tools' | 'chat' | 'unknown' | 'unsupported'>();
 	private activeModel: string | undefined;
 	private chatQueue: Promise<void> = Promise.resolve();
 
@@ -125,7 +125,7 @@ export class OllamaClient {
 		if (!Array.isArray(result.models)) {
 			throw new Error('Ollama returned an invalid model list.');
 		}
-		if (!result.models.every(model => model && typeof model.name === 'string' && model.name.length > 0 &&
+		if (!result.models.every(model => model && typeof model.name === 'string' && model.name.length > 0 && model.name.length <= 256 && !/[\r\n\0]/.test(model.name) &&
 			(model.size === undefined || (typeof model.size === 'number' && Number.isFinite(model.size))) &&
 			(model.details === undefined || (typeof model.details === 'object' && model.details !== null &&
 				(model.details.parameter_size === undefined || typeof model.details.parameter_size === 'string')))))
@@ -133,14 +133,16 @@ export class OllamaClient {
 		return result.models;
 	}
 
-    cachedCapability(model: string): 'tools' | 'chat' | 'unknown' {
+    cachedCapability(model: string): 'tools' | 'chat' | 'unknown' | 'unsupported' {
         return this.capabilities.get(model) ?? 'unknown';
     }
 
-    async inspectModel(model: string): Promise<'tools' | 'chat' | 'unknown'> {
+    async inspectModel(model: string): Promise<'tools' | 'chat' | 'unknown' | 'unsupported'> {
         const info = await this.request<{ capabilities?: unknown }>('/api/show', { model });
         const capability = Array.isArray(info.capabilities) && info.capabilities.every(value => typeof value === 'string')
-            ? info.capabilities.includes('tools') ? 'tools' : 'chat' : 'unknown';
+            ? info.capabilities.includes('tools') ? 'tools' : info.capabilities.includes('completion') ? 'chat'
+                : info.capabilities.includes('embedding') ? 'unsupported' : 'unknown'
+            : 'unknown';
         this.capabilities.set(model, capability);
         return capability;
     }

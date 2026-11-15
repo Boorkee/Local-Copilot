@@ -3,7 +3,7 @@ import type { OllamaModel } from './ollamaClient';
 export const AUTO_MODES = ['auto:balanced', 'auto:fast', 'auto:quality'] as const;
 export type AutoMode = typeof AUTO_MODES[number];
 export type AssistantMode = 'agent' | 'plan' | 'chat';
-export type ModelCapability = 'tools' | 'chat' | 'unknown';
+export type ModelCapability = 'tools' | 'chat' | 'unknown' | 'unsupported';
 export type ModelCatalogEntry = OllamaModel & { capability: ModelCapability };
 
 export type ModelChoice = {
@@ -32,14 +32,15 @@ function compareSize(a: ModelCatalogEntry, b: ModelCatalogEntry): number {
     // Ollama advertises parameter counts; disk size is a secondary proxy when missing.
     const aParams = parameterCount(a.details?.parameter_size);
     const bParams = parameterCount(b.details?.parameter_size);
-    if (aParams !== undefined && bParams !== undefined && aParams !== bParams) return aParams - bParams;
     const aSize = a.size && Number.isFinite(a.size) && a.size > 0 ? a.size : undefined;
     const bSize = b.size && Number.isFinite(b.size) && b.size > 0 ? b.size : undefined;
-    if (aSize !== undefined && bSize !== undefined && aSize !== bSize) return aSize - bSize;
-    if (aParams !== undefined && bParams === undefined) return -1;
-    if (aParams === undefined && bParams !== undefined) return 1;
-    if (aSize !== undefined && bSize === undefined) return -1;
-    if (aSize === undefined && bSize !== undefined) return 1;
+    // Single sortable unit avoids inconsistent comparisons across mixed metadata.
+    // Roughly two parameters per byte of quantized weights when only disk size is known.
+    const aRank = aParams ?? (aSize === undefined ? undefined : aSize * 2);
+    const bRank = bParams ?? (bSize === undefined ? undefined : bSize * 2);
+    if (aRank !== undefined && bRank !== undefined && aRank !== bRank) return aRank - bRank;
+    if (aRank !== undefined && bRank === undefined) return -1;
+    if (aRank === undefined && bRank !== undefined) return 1;
     return a.name.localeCompare(b.name);
 }
 
@@ -68,13 +69,15 @@ export function chooseModel(args: {
     if (!isAutoMode(selected)) {
         const model = installed.find(item => item.name === selected);
         if (!model) throw new Error(`Model ${selected} is no longer installed. Refresh the model list.`);
+        if (model.capability === 'unsupported')
+            throw new Error(`${selected} cannot run chat requests. Choose a chat or tool-capable model.`);
         if (requiresTools && model.capability === 'chat')
             throw new Error(`${selected} does not support tools. Choose a tool-capable model or switch to Chat mode.`);
         return { model: selected, label: 'Manual', reason: 'Selected by you', automatic: false, candidates: [selected] };
     }
 
     // Auto requires confirmed tool support. Unknown capability is not permission to try tools.
-    const eligible = installed.filter(item => !requiresTools || item.capability === 'tools').sort(compareSize);
+    const eligible = installed.filter(item => item.capability !== 'unsupported' && (!requiresTools || item.capability === 'tools')).sort(compareSize);
     if (!eligible.length) throw new Error(requiresTools
         ? 'Auto needs a tool-capable model for Agent or Plan mode. Refresh models or choose Chat mode.'
         : 'Auto could not find an installed model.');
@@ -100,7 +103,7 @@ export function chooseModel(args: {
 /** Only unavailable-model and resource/capability failures are safe to retry. */
 export function isRecoverableModelError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
-    return /(?:Ollama request failed \((?:404|429|500|502|503|507)\)|model .*not found|does not support tools|out of memory|insufficient (?:memory|vram)|unable to load model)/i.test(message);
+    return /(?:Ollama request failed \((?:404|429|500|502|503|507)\)|model .*not found|does not support tools?|does not support tool calling|out of memory|insufficient (?:memory|vram)|unable to load model)/i.test(message);
 }
 
 /** Retry only before text or tools are exposed; never replay approved side effects. */

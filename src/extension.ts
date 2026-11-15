@@ -43,6 +43,18 @@ type ChatTurn = { transcript: TranscriptEntry[]; history: ChatMessage[] };
 
 type ChatPickItem = vscode.QuickPickItem & { chatId: string };
 
+/** Cancels waiting for background model discovery without cancelling discovery itself. */
+async function waitForModelRefresh(pending: Promise<void>, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    let onAbort: () => void = () => {};
+    const cancelled = new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason ?? new Error('Model selection cancelled.'));
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try { await Promise.race([pending, cancelled]); }
+    finally { signal.removeEventListener('abort', onAbort); }
+}
+
 class ChatViewProvider implements vscode.WebviewViewProvider {
 	private view: vscode.WebviewView | undefined;
 	private client: OllamaClient;
@@ -381,8 +393,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (!model) throw new Error('Select a model to continue.');
                     await this.runTurn(prompt, async chat => {
                         this.setStatus('Choosing local model…');
-                        await (this.modelRefreshPending ?? (this.modelCatalog.length ? Promise.resolve() : this.refreshModels()));
-                        this.taskController!.signal.throwIfAborted();
+                        await waitForModelRefresh(this.modelRefreshPending ??
+                            (this.modelCatalog.length ? Promise.resolve() : this.refreshModels()), this.taskController!.signal);
                         const choice = chooseModel({ selected: model, mode: message.mode ?? 'agent', prompt,
                             hasAttachment: this.attachments.length > 0, historyCount: chat.history.length, catalog: this.modelCatalog });
                         const taskId = this.taskId!;
@@ -474,7 +486,6 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private stopTask(): void {
         this.taskController?.abort(new Error('Task stopped by the user.'));
         this.reviews.cancel();
-        if (this.busy) this.client.cancelRequests();
     }
 
     private createTools(root: string, readOnly = false): WorkspaceTools {
@@ -585,7 +596,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
             const defaultCodeModel = vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'auto:balanced');
             this.post({ type: 'models', models: names, defaultModel, defaultCodeModel });
             this.post({ type: 'connection', state: this.connection, text: this.connectionError });
-            const capabilities: Record<string, 'tools' | 'chat' | 'unknown'> = {};
+            const capabilities: Record<string, ModelCatalogEntry['capability']> = {};
             let next = 0;
             await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
                 while (next < names.length) {

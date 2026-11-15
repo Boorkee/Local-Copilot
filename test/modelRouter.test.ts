@@ -48,6 +48,9 @@ describe('local model routing', () => {
         assert.throws(() => choose('auto:balanced', 'chat', 'hi', []), /No Ollama models/);
         assert.equal(choose('large', 'chat').automatic, false);
         assert.deepEqual(choose('large', 'chat').candidates, ['large']);
+		const embedded: ModelCatalogEntry = { name: 'embed', capability: 'unsupported', size: 100 };
+		assert.equal(choose('auto:fast', 'chat', 'hi', [embedded, ...catalog]).model, 'tiny');
+		assert.throws(() => choose('embed', 'chat', 'hi', [embedded, ...catalog]), /cannot run chat/);
     });
 
     it('sorts deterministically with older Ollama metadata', () => {
@@ -58,6 +61,13 @@ describe('local model routing', () => {
         ];
         assert.equal(choose('auto:fast', 'agent', 'hi', older).model, 'b');
         assert.equal(choose('auto:quality', 'agent', 'hi', older).model, 'z');
+        assert.equal(choose('auto:balanced', 'chat', 'hi', older).model, 'b');
+		const mixed: ModelCatalogEntry[] = [
+			{ name: 'quantized-large', details: { parameter_size: '14B' }, size: 3_000_000_000, capability: 'tools' },
+			{ name: 'normal-small', details: { parameter_size: '7B' }, size: 5_000_000_000, capability: 'tools' },
+			{ name: 'unknown-count', size: 4_000_000_000, capability: 'tools' }
+		];
+		assert.equal(choose('auto:quality', 'chat', 'hi', mixed).model, 'quantized-large');
     });
 
     it('only retries model-load failures rather than arbitrary tool and user errors', () => {

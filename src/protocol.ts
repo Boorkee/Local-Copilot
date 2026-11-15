@@ -1,6 +1,7 @@
 import type { Chat } from './chatStore';
 import type { ReviewCard } from './reviewQueue';
 import type { VoiceEvent } from './voiceInput';
+import type { ModelCapability } from './modelRouter';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -25,7 +26,7 @@ export type HostEvent = VoiceEvent
     | { type: 'commandOutput'; text: string; reset?: boolean }
     | { type: 'connection'; state: 'loading' | 'ready' | 'empty' | 'error'; text?: string }
     | { type: 'models'; models: string[]; defaultModel: string; defaultCodeModel: string;
-        capabilities?: Record<string, 'tools' | 'chat' | 'unknown'> }
+        capabilities?: Record<string, ModelCapability> }
     | { type: 'attachments'; items: Array<{ id: string; label: string }> }
     | { type: 'taskStarted'; taskId: string; sessionId: string }
     | { type: 'modelSelected'; taskId: string; sessionId: string; model: { name: string; label: string; reason: string } }
