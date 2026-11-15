@@ -183,6 +183,12 @@ describe('OllamaClient.chat and streaming', () => {
         }
     });
 
+    it('bounds excessively long generated replies', async () => {
+        const { client } = createClient(async () => new Response(JSON.stringify({ message: { content: 'x'.repeat(1_000_001) } }),
+            { headers: { 'content-type': 'application/json' } }));
+        await assert.rejects(client.chat('coder', 'hello', []), /reply exceeds the size limit/);
+    });
+
     it('stops a streaming request when the user cancels', async () => {
         const encoder = new TextEncoder();
         const stream = new ReadableStream<Uint8Array>({

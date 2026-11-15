@@ -267,6 +267,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.flushDelta(chat.id, taskId);
 		this.store.finishTask(chat.id, taskId);
 		const cancelled = this.taskController.signal.aborted;
+		if (cancelled) {
+            const note = 'Task cancelled. Any previously approved file changes or command side effects may remain.';
+            this.store.appendTurn(chat.id, [
+                { role: 'user', content: prompt },
+                { role: 'assistant', content: note, steps: this.taskSteps.length ? this.taskSteps.map(step => ({ ...step })) : undefined }
+            ], [{ role: 'user', content: prompt }, { role: 'assistant', content: note }]);
+        }
 		this.reviews.cancel();
         this.taskController = undefined;
 		this.busy = false;

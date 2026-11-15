@@ -207,6 +207,7 @@ export class WorkspaceTools {
 		const { absolute } = await this.resolve(file);
 		const unsaved = this.options.openDocuments?.readUnsaved(absolute);
 		if (unsaved !== undefined) {
+			if (Buffer.byteLength(unsaved) > MAX_READ_BYTES || unsaved.includes('\0')) throw new Error('Unsaved file is too large or binary.');
 			return unsaved;
 		}
 		const stat = await fs.stat(absolute);
@@ -266,10 +267,11 @@ export class WorkspaceTools {
                 } else if (entry.isFile()) {
                     const stat = await fs.stat(target);
                     if (stat.size > MAX_READ_BYTES || bytes + stat.size > MAX_SEARCH_BYTES) continue;
-                    files++;
-                    bytes += stat.size;
                     const content = this.options.openDocuments?.readUnsaved(target) ?? await fs.readFile(target, 'utf8');
-                    if (content.includes('\0')) continue;
+                    const size = Buffer.byteLength(content);
+                    if (size > MAX_READ_BYTES || bytes + size > MAX_SEARCH_BYTES || content.includes('\0')) continue;
+                    files++;
+                    bytes += size;
                     for (const [index, line] of content.split(/\r?\n/).entries()) {
                         if (line.toLocaleLowerCase().includes(needle)) {
                             matches.push({ path: this.display(rootReal, target), line: index + 1, excerpt: line.slice(0, 240) });

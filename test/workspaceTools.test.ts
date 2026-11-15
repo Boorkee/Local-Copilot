@@ -147,6 +147,16 @@ describe('WorkspaceTools', () => {
         assert.match(await tools.execute('read_file_range', { path: 'range.txt', startLine: 2, endLine: 300 }), /Line range/);
     });
 
+    it('does not pull oversized unsaved buffers into model context', async () => {
+        await fs.writeFile(path.join(root, 'small-on-disk.txt'), 'short');
+        const tools = new WorkspaceTools(root, { openDocuments: {
+            readUnsaved: () => 'x'.repeat(220_000), writeUnsaved: async () => false
+        } });
+        assert.match(await tools.execute('read_file', { path: 'small-on-disk.txt' }), /too large/);
+        const result = JSON.parse(await tools.execute('search_workspace', { query: 'xxxx', path: '.' }));
+        assert.equal(result.matches.some((item: { path: string }) => item.path === 'small-on-disk.txt'), false);
+    });
+
     it('replaces a unique span with review and rejects changed files', async () => {
         await fs.writeFile(path.join(root, 'patch.txt'), 'alpha beta gamma');
         const approved = new WorkspaceTools(root, { confirmWrite: async proposal => {

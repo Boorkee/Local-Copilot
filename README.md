@@ -14,17 +14,17 @@ A native VS Code sidebar chat extension backed by a local [Ollama](https://ollam
 3. Press `F5` to launch an Extension Development Host.
 4. Open the Local Copilot icon in the Activity Bar, choose a model, and start chatting.
 
-The default model is `qwen2.5-coder:7b`. The model picker is populated from Ollama's `/api/tags` endpoint. Configure `localCopilot.ollamaBaseUrl`, `localCopilot.defaultModel`, and `localCopilot.requestTimeoutMs` in VS Code settings as needed.
+The default model is `qwen2.5-coder:7b`. The model picker is populated from Ollama's `/api/tags` endpoint, with `/api/show` used to label models that advertise tool calling. Configure `localCopilot.ollamaBaseUrl`, `localCopilot.defaultModel`, `localCopilot.codeModel`, and `localCopilot.requestTimeoutMs` in VS Code settings as needed.
 
 ## Tests and CI
 
-Run `npm test` to compile the extension and execute the unit tests. The tests cover Ollama streaming and cancellation, sidebar HTML/CSP, editor replacement range selection, extension metadata, debug configuration, and the activity-bar icon.
+Run `npm test` to compile the extension and execute the unit tests. These cover streamed responses, partial tool calls, model residency, chat recovery, protocol validation, bounded workspace context, edit approvals, and other existing features. Run `npm run test:webview` after installing Playwright Chromium to check the UI, Markdown and accessibility-sensitive interactions.
 
 GitHub Actions runs the compile and unit-test suite on Windows, macOS, and Linux with Node 20 and 24 for pushes and pull requests. Pushing a `v*` tag also builds a VSIX and attaches it to a GitHub Release.
 
 ## Saved chats
 
-Chats are saved automatically and survive moving the view, reloading, and restarting VS Code. Use the **New Chat** (+) and **Chat History** buttons in the view's title bar to start a chat or switch between saved chats; the history picker also lets you delete chats. The chat and code model pickers sit below the input box.
+Chats are saved automatically and survive moving the view, reloading, and restarting VS Code. Use **New Chat** (+) and **Chat History** in the view title bar to switch sessions. The searchable history picker lets you rename or delete them. If VS Code closes during a task, the unfinished prompt is marked interrupted on next launch; operations are never resumed automatically.
 
 ## Model memory management
 
@@ -32,11 +32,13 @@ Model residency defaults to `automatic`, letting Ollama manage its own memory wi
 
 ## Agent mode and inline approvals
 
-**Agent** is the default mode. Ask normally: “fix this bug,” “create a settings page,” or “run the tests.” The selected **Code** model receives workspace tools directly; no `/code` prefix or small-model routing decision is required. **Chat** uses the Chat model for conversation without tools.
+**Agent** is the default mode. Ask normally: “fix this bug,” “create a settings page,” or “run the tests.” The selected **Code** model receives workspace tools directly; no `/code` prefix is required. **Plan** can search and inspect files but is strictly read-only: the host refuses writes, deletes, and shell commands. **Chat** uses the Chat model for conversation without workspace tools.
 
-Agent tools can list, read, create, edit, and delete workspace files, inspect the active editor and selection, open files, read VS Code diagnostics, and run builds/tests or other shell commands. The extension supplies these tools and executes the model's requests; Ollama itself does not have IDE access. Choose an installed model that supports [Ollama tool calling](https://docs.ollama.com/capabilities/tool-calling), open and trust a workspace, and select that model in the Code picker. Model quality still determines how reliably it plans and uses tools; this does not implement every GitHub Copilot feature.
+Agent tools can list and search workspace files (bounded excerpts with line numbers), read file ranges, inspect editor context, symbols, workspace diagnostics, and Git diffs; they can also create or delete files, propose unique text replacements, and request approved shell commands. The extension supplies and validates these tools; Ollama itself does not have IDE access. Choose a model with [Ollama tool calling](https://docs.ollama.com/capabilities/tool-calling), then open and trust a workspace. Unknown capabilities remain selectable; known Chat-only models are excluded from Agent selection. Tool search currently uses the first workspace root and skips common generated directories; it is not yet a full multi-root or indexed search service.
 
-Every proposed file write or deletion shows a review card immediately above the input, with green additions, red removals, and +/− line counts. **Keep** applies the proposed write; **Revert** rejects it without changing the file. Deletes have their own approval. Files changed by you while a review is open are not overwritten. The old `reviewChanges` and `autoDelegate` sidebar settings have been retired: sidebar file reviews are always required and Agent mode is direct.
+The paperclip icon attaches an explicit snapshot of the active editor or its selection (up to 6,000 characters, three attachments per message). Click a chip to remove it. These snippets go only to your configured Ollama endpoint with the prompt; source text is treated as untrusted context and never as approval. No files are uploaded in the background.
+
+Every proposed file write or deletion shows a review card immediately above the input, with green additions, red removals, and +/− line counts. **Open full diff** previews the complete proposal using VS Code's native diff editor; **Keep** applies the proposed write and **Revert** rejects it. Deletes have their own approval. Files changed while a review is open are not overwritten. The old `reviewChanges` and `autoDelegate` settings have been retired: reviews are always required and Agent mode is direct.
 
 Every shell command shows its exact text, shell, and working directory and waits for **Run command** or **Reject**. Commands run in Windows PowerShell on Windows and `/bin/sh` elsewhere, with your account permissions; they are not sandboxed. Shell side effects are not covered by the file-tool Keep/Revert controls. Output and exit status return to the model and appear in an expandable output area. Commands are noninteractive, limited to two minutes and 64 KB of output. **Stop task** cancels pending approvals and terminates the running command process tree. Changing chats or closing the view also cancels the active task.
 
@@ -58,6 +60,12 @@ Requests originate from the VS Code extension host. When using WSL, SSH, or cont
 ## Applying a response
 
 Use **Apply to active editor** to write the latest response into the focused editor. It replaces the current selection; if there is no selection, it replaces the entire active document. The action is explicit, and the editor's normal undo history is preserved.
+
+## Conversation rendering and bundle size
+
+The conversation feed renders incrementally in React. It supports GitHub-flavored Markdown (headings, lists, tables, task lists, links, and fenced code blocks), with **Copy** and reviewed **Apply** actions for code. HTML from model responses is ignored; remote images are not loaded. External links require a click, and file/line links open only files validated inside the workspace. Tool activity and interrupted tasks remain visible in chat history.
+
+The Markdown and GFM parser adds bundle weight: the webview grew from about 125 KB to 177 KB gzipped during this change (roughly +52 KB). This is a deliberate tradeoff for safe, standards-compliant rendering without adding a server or CDN. Cold-load and responsiveness should be measured on the target Windows machine before release; unit tests are not a substitute for that profiling.
 
 ## Polished input and local voice
 

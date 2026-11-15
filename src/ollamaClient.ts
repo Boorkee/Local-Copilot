@@ -54,6 +54,7 @@ class ChatAccumulator {
         if (message.content !== undefined && typeof message.content !== 'string') throw new Error('Ollama returned invalid message content.');
         if (message.content) {
             this.content += message.content;
+            if (this.content.length > 1_000_000) throw new Error('Ollama reply exceeds the size limit.');
             onDelta?.(message.content);
         }
         if (message.tool_calls !== undefined && !Array.isArray(message.tool_calls)) throw new Error('Ollama returned invalid tool calls.');
@@ -71,6 +72,7 @@ class ChatAccumulator {
                 ? part.name === undefined && this.calls.length ? this.calls.length - 1 : undefined
                 : this.indexes.get(index);
             if (slot === undefined) {
+                if (this.calls.length >= 100) throw new Error('Ollama returned too many tool calls.');
                 slot = this.calls.length;
                 this.calls.push({ function: { name: '', arguments: '' } });
                 if (index !== undefined) this.indexes.set(index, slot);
@@ -84,6 +86,7 @@ class ChatAccumulator {
             } else if (part.arguments !== undefined) {
                 current.arguments = { ...(typeof current.arguments === 'string' ? {} : current.arguments), ...(part.arguments as Record<string, unknown>) };
             }
+            if (JSON.stringify(current.arguments).length > 200_000) throw new Error('Ollama tool arguments exceed the size limit.');
         }
     }
 
