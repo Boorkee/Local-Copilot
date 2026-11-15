@@ -6,6 +6,8 @@ export type TranscriptEntry = {
 	content: string;
 	/** Model actually used for this reply; retained when conversation history is reopened. */
 	model?: { name: string; label: string; reason: string };
+	/** Project agent profile in use for this reply, if any. */
+	agent?: { id: string; name: string };
 	attachments?: string[];
 	steps?: Array<{ id: string; summary: string; status: 'started' | 'done' | 'failed' }>;
 	/** Files the code model changed during this turn, shown under the reply. */

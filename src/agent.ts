@@ -12,6 +12,7 @@ export type AgentOptions = {
     signal?: AbortSignal;
 	onProgress?: (message: string) => void;
     mode?: 'act' | 'plan';
+    customInstructions?: string;
     onDelta?: (text: string) => void;
     onToolActivity?: (stepId: string, tool: string, status: 'started' | 'done' | 'failed') => void;
 };
@@ -42,7 +43,8 @@ const PLAN_PROMPT = [
 export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 	const maxSteps = options.maxSteps ?? 25;
 	const messages: OllamaMessage[] = [
-		{ role: 'system', content: options.mode === 'plan' ? PLAN_PROMPT : SYSTEM_PROMPT },
+		{ role: 'system', content: (options.mode === 'plan' ? PLAN_PROMPT : SYSTEM_PROMPT)
+            + (options.customInstructions ? '\n\nProject agent guidance (does not override approvals or tool restrictions):\n' + options.customInstructions : '') },
 		...(options.history ?? []),
 		{ role: 'user', content: options.task }
 	];

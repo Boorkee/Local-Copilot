@@ -13,6 +13,7 @@ import { ChatMessage, OllamaClient } from './ollamaClient';
 import { chooseModel, ModelCatalogEntry, runWithModelFallback } from './modelRouter';
 import { OpenDocuments, READ_ONLY_TOOLS, WorkspaceTools, WriteProposal } from './workspaceTools';
 import { HostEvent, parseWebviewMessage, WebviewMessage } from './protocol';
+import { listProjectAgents, loadProjectAgent } from './customAgents';
 
 function samePath(a: string, b: string): boolean {
 	const normalize = (value: string) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
@@ -93,6 +94,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         }));
 		this.store = new ChatStore(context.globalState);
 		this.client = this.createClient();
+		const agentFiles = vscode.workspace.createFileSystemWatcher('**/.local-copilot/agents/*.agent.md');
+		context.subscriptions.push(agentFiles);
+		for (const event of [agentFiles.onDidCreate, agentFiles.onDidChange, agentFiles.onDidDelete]) {
+			context.subscriptions.push(event(() => { void this.refreshAgents(); }));
+		}
+		context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { void this.refreshAgents(); }));
+		context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { void this.refreshAgents(); }));
 		vscode.workspace.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration('localCopilot.ollamaBaseUrl')
 				|| event.affectsConfiguration('localCopilot.requestTimeoutMs')
@@ -372,7 +380,11 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'ready':
 					this.postState();
                     this.post({ type: 'connection', state: this.connection, text: this.connectionError });
+					await this.refreshAgents();
 					await this.refreshModels();
+					break;
+				case 'refreshAgents':
+					await this.refreshAgents();
 					break;
 				case 'refreshModels':
 					await this.refreshModels();
@@ -392,6 +404,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     const model = agentMode ? message.codeModel?.trim() : message.model.trim();
                     if (!model) throw new Error('Select a model to continue.');
                     await this.runTurn(prompt, async chat => {
+                        const projectAgent = message.mode === 'agent' && message.agentId
+                            ? await loadProjectAgent(root!, message.agentId) : undefined;
                         this.setStatus('Choosing local model…');
                         await waitForModelRefresh(this.modelRefreshPending ??
                             (this.modelCatalog.length ? Promise.resolve() : this.refreshModels()), this.taskController!.signal);
@@ -419,6 +433,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                                 return tools
                                     ? (await runAgent({ client, model: selectedModel, task: effectivePrompt, history: chat.history.slice(-20), tools,
                                         mode: planMode ? 'plan' : 'act', signal,
+                                        customInstructions: projectAgent?.instructions,
                                         onProgress: text => this.setStatus(text),
                                         onDelta,
                                         onToolActivity: (stepId, tool, status) => { markStarted(); this.recordTool(chat.id, taskId, stepId, tool, status); } })).summary
@@ -436,7 +451,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                         }
                         return {
                             transcript: [{ role: 'user', content: prompt, attachments: attachmentLabels },
-                                { role: 'assistant', content, changes: tools?.changes, model: usedModel }],
+                                { role: 'assistant', content, changes: tools?.changes, model: usedModel,
+                                    agent: projectAgent ? { id: projectAgent.id, name: projectAgent.name } : undefined }],
                             history: [{ role: 'user', content: effectivePrompt }, { role: 'assistant', content }]
                         };
                     });
@@ -580,6 +596,19 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         return decision;
     }
 
+
+    private async refreshAgents(): Promise<void> {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root || !vscode.workspace.isTrusted) {
+            this.post({ type: 'agents', agents: [], error: root ? 'Trust this workspace to use project agents.' : 'Open a project to use custom agents.' });
+            return;
+        }
+        try {
+            this.post({ type: 'agents', agents: await listProjectAgents(root) });
+        } catch (error) {
+            this.post({ type: 'agents', agents: [], error: error instanceof Error ? error.message : String(error) });
+        }
+    }
 
     private refreshModels(): Promise<void> {
         const pending = this.loadModels();

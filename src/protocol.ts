@@ -2,18 +2,19 @@ import type { Chat } from './chatStore';
 import type { ReviewCard } from './reviewQueue';
 import type { VoiceEvent } from './voiceInput';
 import type { ModelCapability } from './modelRouter';
+import type { ProjectAgentInfo } from './customAgents';
 
 export const PROTOCOL_VERSION = 1;
 
 export type WebviewMessage =
-    | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'stopTask' | 'openSettings' | 'attachEditor' }
+    | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'refreshAgents' | 'stopTask' | 'openSettings' | 'attachEditor' }
     | { type: 'removeAttachment'; id: string }
     | { type: 'reviewDecision'; id: string; approved: boolean }
     | { type: 'openDiff'; id: string }
     | { type: 'openLocation'; path: string; line?: number }
     | { type: 'openExternal'; url: string }
     | { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
-    | { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; mode?: 'agent' | 'chat' | 'plan' }
+    | { type: 'sendMessage'; model: string; codeModel?: string; agentId?: string; prompt: string; mode?: 'agent' | 'chat' | 'plan' }
     | { type: 'applyCode' | 'copyCode'; code: string };
 
 export type TaskStatus = 'done' | 'failed' | 'cancelled';
@@ -27,6 +28,7 @@ export type HostEvent = VoiceEvent
     | { type: 'connection'; state: 'loading' | 'ready' | 'empty' | 'error'; text?: string }
     | { type: 'models'; models: string[]; defaultModel: string; defaultCodeModel: string;
         capabilities?: Record<string, ModelCapability> }
+    | { type: 'agents'; agents: ProjectAgentInfo[]; error?: string }
     | { type: 'attachments'; items: Array<{ id: string; label: string }> }
     | { type: 'taskStarted'; taskId: string; sessionId: string }
     | { type: 'modelSelected'; taskId: string; sessionId: string; model: { name: string; label: string; reason: string } }
@@ -47,7 +49,7 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     if (!record(value) || typeof value.type !== 'string') return;
     switch (value.type) {
         case 'ready': case 'startVoice': case 'stopVoice': case 'refreshModels':
-        case 'stopTask': case 'openSettings': case 'attachEditor':
+        case 'refreshAgents': case 'stopTask': case 'openSettings': case 'attachEditor':
             return { type: value.type };
         case 'removeAttachment':
             if (string(value.id, 128) && value.id.length > 0) return { type: value.type, id: value.id };
@@ -79,9 +81,11 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
         case 'sendMessage':
             if (!string(value.model, 256) || !string(value.prompt, 50_000) ||
                 (value.codeModel !== undefined && !string(value.codeModel, 256)) ||
+                (value.agentId !== undefined && (!string(value.agentId, 48) || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value.agentId))) ||
                 (value.mode !== undefined && value.mode !== 'chat' && value.mode !== 'agent' && value.mode !== 'plan')) return;
             return { type: value.type, model: value.model, codeModel: value.codeModel as string | undefined,
-                prompt: value.prompt, mode: value.mode as 'agent' | 'chat' | 'plan' | undefined };
+                prompt: value.prompt, ...(value.agentId !== undefined ? { agentId: value.agentId } : {}),
+                mode: value.mode as 'agent' | 'chat' | 'plan' | undefined };
         case 'applyCode': case 'copyCode':
             if (string(value.code, 200_000)) return { type: value.type, code: value.code };
             return;
