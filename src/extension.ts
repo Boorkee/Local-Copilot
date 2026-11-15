@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { VoiceInput } from './voiceInput';
 import * as vscode from 'vscode';
 import { runAgent } from './agent';
@@ -10,6 +11,7 @@ import { replaceEditorText } from './editorActions';
 import { delegateCodingTask } from './orchestrator';
 import { ChatMessage, OllamaClient } from './ollamaClient';
 import { OpenDocuments, WorkspaceTools, WriteProposal } from './workspaceTools';
+import { HostEvent, parseWebviewMessage, WebviewMessage } from './protocol';
 
 function samePath(a: string, b: string): boolean {
 	const normalize = (value: string) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
@@ -36,19 +38,6 @@ const unsavedDocuments: OpenDocuments = {
 	}
 };
 
-type WebviewMessage =
-	| { type: 'ready' }
-	| { type: 'startVoice' }
-	| { type: 'stopVoice' }
-	| { type: 'refreshModels' }
-	| { type: 'reviewDecision'; id: string; approved: boolean }
-	| { type: 'stopTask' }
-	| { type: 'openSettings' }
-	| { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
-	| { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; mode?: 'agent' | 'chat' }
-	| { type: 'applyCode'; code: string }
-	| { type: 'copyCode'; code: string };
-
 type ChatTurn = { transcript: TranscriptEntry[]; history: ChatMessage[] };
 
 type ChatPickItem = vscode.QuickPickItem & { chatId: string };
@@ -58,6 +47,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	private client: OllamaClient;
 	private readonly store: ChatStore;
 	private busy = false;
+	private taskId: string | undefined;
 	private pending: { chatId: string; prompt: string } | undefined;
 	private status = '';
 	private readonly voice: VoiceInput;
@@ -65,7 +55,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly reviews = new ReviewQueue(review => this.post({ type: 'review', review: review ?? null }));
     private taskController?: AbortController;
     private commandOutput = '';
-    private connection = 'loading';
+    private connection: 'loading' | 'ready' | 'empty' | 'error' = 'loading';
     private connectionError = '';
 
 	constructor(context: vscode.ExtensionContext) {
@@ -92,8 +82,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		webviewView.onDidChangeVisibility(() => {
 			if (!webviewView.visible) this.voice.stop();
 		});
-		const messageSubscription = webviewView.webview.onDidReceiveMessage((message: WebviewMessage) => {
-			void this.handleMessage(message);
+		const messageSubscription = webviewView.webview.onDidReceiveMessage((value: unknown) => {
+			const message = parseWebviewMessage(value);
+			if (message) void this.handleMessage(message);
 		});
 		webviewView.onDidDispose(() => {
 			messageSubscription.dispose();
@@ -162,7 +153,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			this.view.description = chat.transcript.length ? chat.title : undefined;
 		}
 		const pending = this.busy && this.pending?.chatId === chat.id ? { prompt: this.pending.prompt } : undefined;
-		this.post({ type: 'state', chat, busy: this.busy, pending, status: this.status, review: this.reviews.current ?? null, commandOutput: this.commandOutput });
+		this.post({ type: 'state', chat, busy: this.busy, pending, status: this.status, review: this.reviews.current ?? null, commandOutput: this.commandOutput,
+            taskId: pending ? this.taskId : undefined });
 	}
 
 	private setStatus(text: string): void {
@@ -179,26 +171,33 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.voice.stop();
 		const chat = this.store.active();
 		this.busy = true;
+		const taskId = randomUUID();
+		this.taskId = taskId;
 		this.pending = { chatId: chat.id, prompt };
 		this.taskController = new AbortController();
         this.commandOutput = '';
         this.setStatus('Thinking…');
         this.postState();
+		this.post({ type: 'taskStarted', taskId, sessionId: chat.id });
 		let failure: string | undefined;
 		try {
 			const turn = await work(chat);
+			this.taskController.signal.throwIfAborted();
 			this.store.appendTurn(chat.id, turn.transcript, turn.history);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
             if (/does not support tools/i.test(failure)) failure += ' Choose a tool-capable Code model for Agent mode, or use Chat mode for this model.';
 		}
+		const cancelled = this.taskController.signal.aborted;
 		this.reviews.cancel();
         this.taskController = undefined;
 		this.busy = false;
+		this.taskId = undefined;
 		this.pending = undefined;
 		this.status = '';
 		this.postState();
-		if (failure !== undefined) {
+		this.post({ type: 'taskFinished', taskId, sessionId: chat.id, status: cancelled ? 'cancelled' : failure ? 'failed' : 'done' });
+		if (failure !== undefined && this.store.active().id === chat.id && !cancelled) {
 			this.post({ type: 'error', text: failure, prompt });
 		}
 	}
@@ -419,7 +418,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.setStatus('Response applied to the active editor.');
 	}
 
-	private post(message: Record<string, unknown>): void {
+	private post(message: HostEvent): void {
 		void this.view?.webview.postMessage(message);
 	}
 
