@@ -52,10 +52,16 @@ export async function loadProjectAgent(root: string, id: string): Promise<Projec
     const folder = await agentDirectory(root);
     if (!folder) throw new Error('No .local-copilot/agents directory exists in this workspace.');
     const file = path.join(folder, `${id}.agent.md`);
-    const stat = await lstat(file).catch(() => { throw new Error(`Project agent ${id} was not found.`); });
+    const stat = await lstat(file).catch(error => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Project agent ${id} was not found.`);
+        throw error;
+    });
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_AGENT_BYTES)
         throw new Error(`Project agent ${id} must be a regular Markdown file under ${MAX_AGENT_BYTES} bytes.`);
-    return parseAgent(id, await readFile(file, 'utf8'));
+    const source = await readFile(file, 'utf8');
+    if (Buffer.byteLength(source, 'utf8') > MAX_AGENT_BYTES)
+        throw new Error(`Project agent ${id} exceeds ${MAX_AGENT_BYTES} bytes.`);
+    return parseAgent(id, source);
 }
 
 export async function listProjectAgents(root: string): Promise<ProjectAgentInfo[]> {

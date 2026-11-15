@@ -2,7 +2,7 @@ import type { Chat } from './chatStore';
 import type { ReviewCard } from './reviewQueue';
 import type { VoiceEvent } from './voiceInput';
 import type { ModelCapability } from './modelRouter';
-import type { ProjectAgentInfo } from './customAgents';
+import { validAgentId, type ProjectAgentInfo } from './customAgents';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -81,7 +81,7 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
         case 'sendMessage':
             if (!string(value.model, 256) || !string(value.prompt, 50_000) ||
                 (value.codeModel !== undefined && !string(value.codeModel, 256)) ||
-                (value.agentId !== undefined && (!string(value.agentId, 48) || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value.agentId))) ||
+                (value.agentId !== undefined && (!string(value.agentId, 48) || !validAgentId(value.agentId))) ||
                 (value.mode !== undefined && value.mode !== 'chat' && value.mode !== 'agent' && value.mode !== 'plan')) return;
             return { type: value.type, model: value.model, codeModel: value.codeModel as string | undefined,
                 prompt: value.prompt, ...(value.agentId !== undefined ? { agentId: value.agentId } : {}),

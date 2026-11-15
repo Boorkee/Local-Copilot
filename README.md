@@ -18,11 +18,11 @@ The model picker is populated from Ollama's `/api/tags` endpoint, with `/api/sho
 
 ## Automatic model switching
 
-The composer has one model picker for the current mode (Chat, Agent, or Plan). The default **Auto · Balanced** picks from models already installed in Ollama, independently for each request. You can also choose:
+The composer separates **mode** (Agent, Plan, Chat), **routing** (Auto or Manual), and **model** selection. The default **Auto · Balanced** picks from models already installed in Ollama, independently for each request. You can also choose:
 
 - **Auto · Fast:** prioritize the smallest available local model.
 - **Auto · Quality:** prioritize the largest available local model.
-- **Any installed model:** turn off automatic selection for that mode and use that exact model.
+- **Manual:** pick a specific installed Ollama model, remembered per mode. The installed-model menu stays visible but is blocked with a translucent explanation while Auto is on.
 
 Balanced favors smaller models for short conversations and bigger ones for longer or more involved questions, code, attachments, and multi-step tasks. The router uses prompt characteristics and Ollama-reported parameter counts, falling back to disk size when needed; it is a small deterministic rule set, **not an extra LLM call**. It doesn't make quality or hardware-fit guarantees, and it never downloads models automatically. Pull more than one model for meaningful automatic switching. The size estimates don't measure benchmark quality or free VRAM.
 
@@ -51,6 +51,28 @@ Model residency defaults to `automatic`, letting Ollama manage its own memory wi
 ## Agent mode and inline approvals
 
 **Agent** is the default mode. Ask normally: “fix this bug,” “create a settings page,” or “run the tests.” The chosen model receives workspace tools directly; no `/code` prefix is required. **Plan** can search and inspect files but is strictly read-only: the host refuses writes, deletes, and shell commands. **Chat** uses its chosen model for conversation without workspace tools.
+
+### Project agents
+
+When in **Agent** mode, a second menu lets you choose the **Built-in agent** or a custom agent defined inside your project. Add one Markdown file per profile in the first workspace folder:
+
+```
+.local-copilot/
+  agents/
+    reviewer.agent.md
+```
+
+For example, `reviewer.agent.md` can contain:
+
+```markdown
+---
+name: Code Reviewer
+description: Focus on bugs, safety, and regressions
+---
+Inspect the relevant code first. Explain suspected issues and add focused tests when helpful.
+```
+
+The file name is the agent ID. `name` and `description` are optional single-line fields; the Markdown body supplies additional instructions. The menu refreshes when profiles change, and a profile is read again when the next request starts. Built-in Agent, Plan, and Chat modes are not themselves project profiles. Project instructions never grant new tools or bypass workspace trust, write reviews, or command approvals. For safety and responsiveness, profiles must be regular (not symlinked) files, with at most 32 profiles and a 20 KB limit per file. The selector uses the first workspace root only.
 
 Agent tools can list and search workspace files (bounded excerpts with line numbers), read file ranges, inspect editor context, symbols, workspace diagnostics, and Git diffs; they can also create or delete files, propose unique text replacements, and request approved shell commands. The extension supplies and validates these tools; Ollama itself does not have IDE access. Choose a model with [Ollama tool calling](https://docs.ollama.com/capabilities/tool-calling), then open and trust a workspace. Unknown capabilities remain selectable; known Chat-only models are excluded from Agent selection. Tool search currently uses the first workspace root and skips common generated directories; it is not yet a full multi-root or indexed search service.
 
@@ -87,7 +109,7 @@ The Markdown and GFM parser adds bundle weight: the webview grew from about 125 
 
 ## Polished input and local voice
 
-The sidebar bundles four [Libraries.dev](https://libraries.dev/) effects: Border Beam around the composer, Thinking Orbs while the agent works, Gooey for the Type/Speak selector, and Voice Glow driven by actual microphone levels. No other effect modules are included. Assets ship inside the extension, with no CDN requests. Effects follow the VS Code theme, pause when hidden, and respect reduced-motion preferences.
+The sidebar bundles four [Libraries.dev](https://libraries.dev/) effects: Border Beam around the composer, Thinking Orbs while the agent works, Gooey for the Type/Speak selector and popover accents, and Voice Glow driven by actual microphone levels. No other effect modules are included. Assets ship inside the extension, with no CDN requests. Controls have subtle tactile press feedback; panels and upward-opening menus use short opacity/transform transitions, which turn off when reduced motion is preferred. Effects follow the VS Code theme and pause when hidden.
 
 Choose **Speak → Start listening** to dictate into the draft. Choose **Stop**, review or edit the text, then send it. Enter sends; Shift+Enter inserts a newline. Speech never automatically sends a message or executes a command. Drafts survive webview reloads.
 

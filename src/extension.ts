@@ -95,10 +95,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.store = new ChatStore(context.globalState);
 		this.client = this.createClient();
 		const agentFiles = vscode.workspace.createFileSystemWatcher('**/.local-copilot/agents/*.agent.md');
-		context.subscriptions.push(agentFiles);
-		for (const event of [agentFiles.onDidCreate, agentFiles.onDidChange, agentFiles.onDidDelete]) {
-			context.subscriptions.push(event(() => { void this.refreshAgents(); }));
-		}
+		context.subscriptions.push(agentFiles,
+			agentFiles.onDidCreate(() => { void this.refreshAgents(); }),
+			agentFiles.onDidChange(() => { void this.refreshAgents(); }),
+			agentFiles.onDidDelete(() => { void this.refreshAgents(); }));
 		context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { void this.refreshAgents(); }));
 		context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { void this.refreshAgents(); }));
 		vscode.workspace.onDidChangeConfiguration(event => {
