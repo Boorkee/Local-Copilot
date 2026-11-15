@@ -157,6 +157,19 @@ describe('OllamaClient.chat and streaming', () => {
         ]);
     });
 
+    it('accepts streamed tool names before their arguments arrive', async () => {
+        const lines = [
+            { message: { tool_calls: [{ index: 0, function: { name: 'search_workspace' } }] } },
+            { message: { tool_calls: [{ index: 0, function: { arguments: '{"query":"test"}' } }] } },
+            { done: true }
+        ];
+        const { client } = createClient(async () => new Response(lines.map(line => JSON.stringify(line)).join('\n') + '\n', {
+            headers: { 'content-type': 'application/x-ndjson' }
+        }));
+        const reply = await client.complete('coder', [{ role: 'user', content: 'search' }], []);
+        assert.deepEqual(reply.tool_calls, [{ function: { name: 'search_workspace', arguments: { query: 'test' } } }]);
+    });
+
     it('reports stream errors, invalid events, and incomplete tool calls', async () => {
         for (const [stream, expected] of [
             ['{"error":"model unloaded"}\n', /model unloaded/],

@@ -60,26 +60,29 @@ class ChatAccumulator {
         for (const raw of message.tool_calls ?? []) {
             if (!raw || typeof raw !== 'object' || !raw.function || typeof raw.function !== 'object')
                 throw new Error('Ollama returned invalid tool calls.');
-            const call = raw as ToolCall & { index?: number };
+            const call = raw as { index?: number; function: { name?: unknown; arguments?: unknown } };
             const part = call.function;
-            if (typeof part.name !== 'string' || (typeof part.arguments !== 'string' &&
+            if ((part.name !== undefined && typeof part.name !== 'string') ||
+                (part.arguments !== undefined && typeof part.arguments !== 'string' &&
                 (typeof part.arguments !== 'object' || part.arguments === null || Array.isArray(part.arguments))))
                 throw new Error('Ollama returned invalid tool calls.');
             const index = Number.isInteger(call.index) && (call.index ?? -1) >= 0 ? call.index! : undefined;
-            let slot = index === undefined ? undefined : this.indexes.get(index);
+            let slot = index === undefined
+                ? part.name === undefined && this.calls.length ? this.calls.length - 1 : undefined
+                : this.indexes.get(index);
             if (slot === undefined) {
                 slot = this.calls.length;
                 this.calls.push({ function: { name: '', arguments: '' } });
                 if (index !== undefined) this.indexes.set(index, slot);
             }
             const current = this.calls[slot].function;
-            if (part.name && current.name !== part.name) {
+            if (typeof part.name === 'string' && part.name && current.name !== part.name) {
                 current.name = part.name.startsWith(current.name) ? part.name : current.name + part.name;
             }
             if (typeof part.arguments === 'string') {
                 current.arguments = typeof current.arguments === 'string' ? current.arguments + part.arguments : part.arguments;
-            } else {
-                current.arguments = { ...(typeof current.arguments === 'string' ? {} : current.arguments), ...part.arguments };
+            } else if (part.arguments !== undefined) {
+                current.arguments = { ...(typeof current.arguments === 'string' ? {} : current.arguments), ...(part.arguments as Record<string, unknown>) };
             }
         }
     }
