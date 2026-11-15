@@ -152,7 +152,24 @@ export function createChatViewHtml(effectsUri?: string): string {
         .voice-panel p { font-size:11px; color:var(--vscode-descriptionForeground); margin:8px 0 0; }
         button:focus-visible, select:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
         @media (max-width:280px) { .mode-caption, .local-badge { display:none; } .brand { padding:12px; } }
-        @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
+        /* Reduced motion avoids travel and scaling, but still softens layout changes with fades. */
+        @keyframes soft-appear { from { opacity:0; } to { opacity:1; } }
+        @media (prefers-reduced-motion:reduce) {
+            *, *::before, *::after { scroll-behavior:auto !important; }
+            .voice-reveal { transform:none; transition:grid-template-rows 220ms ease, opacity 180ms ease, visibility 0s linear 220ms; }
+            .voice-reveal.open { transform:none; transition-delay:0s; }
+            .voice-reveal > .voice-panel { transition:padding 220ms ease, margin 220ms ease; }
+            #picker-popover { transform:none; transition:opacity 180ms ease, visibility 0s linear 180ms; }
+            #picker-popover.open { transform:none; transition-delay:0s; }
+            .popover-goo { visibility:hidden; transition:none; }
+            .composer-pick .chevron { transition:none; }
+            .connection-panel, .review-panel, .model-pill { animation:soft-appear 180ms ease-out both; }
+            #hover-tip { transform:none; transition:opacity 150ms ease; }
+            button.mode.plain { transition:background-color 160ms ease, color 160ms ease, transform 110ms ease; }
+            button.mode.plain:active { transform:scale(.99); }
+            button:not(.mode) { transition:transform 110ms ease, background-color 140ms ease, border-color 140ms ease; }
+            button:not(.mode):active:not(:disabled), button.pressed:not(.mode):not(:disabled) { transform:scale(.99); }
+        }
 
         #status { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); padding:0; }
         .activity .record { margin-left:auto; white-space:nowrap; }

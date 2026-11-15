@@ -113,6 +113,10 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /button\.pressed:not\(\.mode\)/);
 		assert.match(html, /setTimeout\(\(\) => showTip\(target\), 750\)/);
 		assert.match(html, /@media \(prefers-reduced-motion:reduce\)/);
+		assert.match(html, /\.voice-reveal \{ transform:none; transition:grid-template-rows 220ms ease, opacity 180ms ease/);
+		assert.match(html, /#picker-popover \{ transform:none; transition:opacity 180ms ease/);
+		assert.match(html, /\.connection-panel, \.review-panel, \.model-pill \{ animation:soft-appear 180ms ease-out both/);
+		assert.doesNotMatch(html, /transition:none !important/);
 	});
 
 	it('emits a webview script that parses as valid JavaScript', () => {

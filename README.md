@@ -109,7 +109,7 @@ The Markdown and GFM parser adds bundle weight: the webview grew from about 125 
 
 ## Polished input and local voice
 
-The sidebar bundles four [Libraries.dev](https://libraries.dev/) effects: Border Beam around the composer, Thinking Orbs while the agent works, Gooey for the Type/Speak selector and popover accents, and Voice Glow driven by actual microphone levels. No other effect modules are included. Assets ship inside the extension, with no CDN requests. Controls have subtle tactile press feedback; panels and upward-opening menus use short opacity/transform transitions, which turn off when reduced motion is preferred. Effects follow the VS Code theme and pause when hidden.
+The sidebar bundles four [Libraries.dev](https://libraries.dev/) effects: Border Beam around the composer, Thinking Orbs while the agent works, Gooey for the Type/Speak selector and popover accents, and Voice Glow driven by actual microphone levels. No other effect modules are included. Assets ship inside the extension, with no CDN requests. Controls have subtle tactile press feedback; panels and upward-opening menus use short opacity/transform transitions. With reduced motion enabled, pronounced movement and decorative effects are removed, but short fades and gradual voice-panel resizing remain so the interface never snaps abruptly. Effects follow the VS Code theme and pause when hidden.
 
 Choose **Speak → Start listening** to dictate into the draft. Choose **Stop**, review or edit the text, then send it. Enter sends; Shift+Enter inserts a newline. Speech never automatically sends a message or executes a command. Drafts survive webview reloads.
 
