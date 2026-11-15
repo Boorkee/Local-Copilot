@@ -116,3 +116,16 @@ test('does not jump to bottom while reading a long streamed conversation', async
   await expect(page.locator('#messages .assistant').last()).toContainText('Streaming continues.');
   expect(await page.locator('#messages').evaluate(node=>node.scrollTop)).toBeLessThan(60);
 });
+
+test('renders gfm without injecting html or loading remote images', async ({page}) => {
+  const content = '# Result\n\n- **One**\n- Two\n\n| File | Lines |\n| --- | --- |\n| src/app.ts | 42 |\n\n[Open source](src/app.ts#L42)\n\n[Website](https://example.com)\n\n![tracking](https://example.com/tracker.png)\n\n<img src=x onerror=alert(1)>\n\n```ts\nconst x = 1;\n```';
+  await host(page, {type:'state',chat:{id:'session-1',transcript:[{role:'assistant',content}]},busy:false});
+  await expect(page.locator('#messages h1')).toHaveText('Result');
+  await expect(page.locator('#messages table tr')).toHaveCount(2);
+  await expect(page.locator('#messages img')).toHaveCount(0);
+  await expect(page.locator('#messages .codeblock button')).toHaveCount(2);
+  await page.getByRole('link',{name:'Open source'}).click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toEqual({type:'openLocation',path:'src/app.ts',line:42});
+  await page.getByRole('link',{name:'Website'}).click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toEqual({type:'openExternal',url:'https://example.com'});
+});

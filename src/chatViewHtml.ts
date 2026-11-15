@@ -127,6 +127,21 @@ export function createChatViewHtml(effectsUri?: string): string {
 	        .task-steps li { display:flex; justify-content:space-between; gap:8px; margin:4px 0; overflow-wrap:anywhere; }
 	        .step-failed { color:var(--vscode-errorForeground); }
 	        .step-done span:last-child { color:var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-foreground)); }
+	        .markdown { overflow-wrap:anywhere; min-width:0; }
+	        .markdown p { margin:0 0 9px; white-space:pre-wrap; }
+	        .markdown p:last-child { margin-bottom:0; }
+	        .markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin:14px 0 8px; line-height:1.3; }
+	        .markdown h1 { font-size:1.25em; } .markdown h2 { font-size:1.16em; } .markdown h3 { font-size:1.08em; }
+	        .markdown ul, .markdown ol { padding-left:20px; margin:8px 0; }
+	        .markdown li { margin:3px 0; }
+	        .markdown li p { margin:0; }
+	        .markdown blockquote { margin:9px 0; padding-left:10px; border-left:2px solid var(--vscode-textLink-foreground); color:var(--vscode-descriptionForeground); }
+	        .markdown table { display:block; max-width:100%; overflow-x:auto; border-collapse:collapse; margin:10px 0; font-size:var(--small); }
+	        .markdown th, .markdown td { border:1px solid var(--vscode-widget-border, var(--vscode-foreground)); padding:5px 8px; text-align:left; }
+	        .markdown a { color:var(--vscode-textLink-foreground); text-decoration:underline; cursor:pointer; }
+	        .markdown a:focus-visible { outline:2px solid var(--vscode-focusBorder); }
+	        .markdown :not(pre) > code { background:var(--vscode-textCodeBlock-background); border-radius:3px; padding:1px 3px; }
+	        .markdown .codeblock { margin:10px 0; }
 	        @media (forced-colors:active) { .task-steps, .codeblock, .message.user { border:1px solid CanvasText; } }
 	</style>
 </head>

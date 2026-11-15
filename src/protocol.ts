@@ -8,6 +8,8 @@ export type WebviewMessage =
     | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'stopTask' | 'openSettings' }
     | { type: 'reviewDecision'; id: string; approved: boolean }
     | { type: 'openDiff'; id: string }
+    | { type: 'openLocation'; path: string; line?: number }
+    | { type: 'openExternal'; url: string }
     | { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
     | { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; mode?: 'agent' | 'chat' }
     | { type: 'applyCode' | 'copyCode'; code: string };
@@ -48,6 +50,19 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
             return;
         case 'openDiff':
             if (string(value.id, 128) && value.id.length > 0) return { type: value.type, id: value.id };
+            return;
+        case 'openLocation':
+            if (string(value.path, 4096) && value.path.length > 0 &&
+                (value.line === undefined || (Number.isInteger(value.line) && (value.line as number) >= 1 && (value.line as number) <= 1_000_000)))
+                return { type: value.type, path: value.path, line: value.line as number | undefined };
+            return;
+        case 'openExternal':
+            if (!string(value.url, 2048)) return;
+            try {
+                const url = new URL(value.url);
+                if ((url.protocol === 'https:' || url.protocol === 'http:') && url.hostname)
+                    return { type: value.type, url: value.url };
+            } catch { /* Invalid URLs are not opened by the host. */ }
             return;
         case 'delegate':
             if (string(value.chatModel, 256) && string(value.codeModel, 256) && string(value.task, 50_000) && string(value.prompt, 50_000))

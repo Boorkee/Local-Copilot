@@ -252,6 +252,19 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'stopTask':
                     this.stopTask();
                     break;
+                case 'openLocation': {
+                    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    if (!root) throw new Error('Open a workspace to follow file links.');
+                    const absolute = await new WorkspaceTools(root).resolveWorkspaceFile(message.path);
+                    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolute));
+                    const line = Math.min(Math.max((message.line ?? 1) - 1, 0), document.lineCount - 1);
+                    const range = new vscode.Range(line, 0, line, 0);
+                    await vscode.window.showTextDocument(document, { selection: range, preview: true });
+                    break;
+                }
+                case 'openExternal':
+                    await vscode.env.openExternal(vscode.Uri.parse(message.url));
+                    break;
                 case 'openSettings':
                     await vscode.commands.executeCommand('workbench.action.openSettings', 'localCopilot.ollamaBaseUrl');
                     break;

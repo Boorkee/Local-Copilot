@@ -88,7 +88,11 @@
         },
         "localCopilot.modelResidency": {
           "type": "string",
-          "enum": ["automatic", "conserve", "keep"],
+          "enum": [
+            "automatic",
+            "conserve",
+            "keep"
+          ],
           "default": "automatic",
           "description": "Automatic lets Ollama manage models (recommended). Conserve unloads only Local Copilot's previous model when switching; this can affect other clients sharing it. Keep asks Ollama to retain the current model in memory."
         }
@@ -122,6 +126,8 @@
     "liquid-gooey": "^0.2.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "thinking-orbs": "^0.3.2",
     "voice-glow": "^0.3.0"
   },

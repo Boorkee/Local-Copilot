@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { isValidElement } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Chat, TranscriptEntry } from '../src/chatStore';
 import type { HostEvent } from '../src/protocol';
 
@@ -8,31 +12,42 @@ type LiveTask = { taskId: string; sessionId: string; content: string; steps: Ste
 
 const destination = document.getElementById('messages')!;
 
-function InlineText({ value }: { value: string }) {
-    const pieces = value.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g);
-    return <>{pieces.map((piece, index) => piece.startsWith('`') && piece.endsWith('`')
-        ? <code key={index}>{piece.slice(1, -1)}</code>
-        : piece.startsWith('**') && piece.endsWith('**')
-            ? <strong key={index}>{piece.slice(2, -2)}</strong>
-            : piece)}</>;
+function safeUrl(url: string): string {
+    if (/^https?:\/\/[^\s]+$/i.test(url)) return url;
+    if (/^(?!\/|\\|\.|#)[\w\-./]+(?:#L\d+)?$/.test(url) && !url.includes('..')) return url;
+    return '';
+}
+
+function openLink(url: string) {
+    if (/^https?:\/\//i.test(url)) {
+        window.copilot.post({ type: 'openExternal', url });
+    } else {
+        const match = /^([^#]+)(?:#L(\d+))?$/.exec(url);
+        if (match) window.copilot.post({ type: 'openLocation', path: match[1], line: match[2] ? Number(match[2]) : undefined });
+    }
+}
+
+function CodeBlock({ children }: { children: ReactNode }) {
+    const child = isValidElement<{ className?: string; children?: ReactNode }>(children) ? children : undefined;
+    const code = String(child?.props.children ?? '');
+    const language = child?.props.className?.replace(/^language-/, '') || '';
+    return <div className="codeblock">
+        <div className="codehead"><span className="lang">{language}</span>
+            <button className="link" onClick={() => window.copilot.post({ type: 'copyCode', code })}>Copy</button>
+            <button className="link" title="Review applying code in the active editor" onClick={() => window.copilot.post({ type: 'applyCode', code })}>Apply</button>
+        </div>
+        <pre><code>{code}</code></pre>
+    </div>;
 }
 
 function BasicMarkdown({ content }: { content: string }) {
-    // Keep source text inert. Full GFM rendering is layered on after the React migration.
-    const parts = content.split(/(^```[^\n]*\n[\s\S]*?(?:\n```(?:\n|$)|$))/gm);
-    return <>{parts.filter(Boolean).map((part, index) => {
-        if (!part.startsWith('```')) return <div className="para" key={index}><InlineText value={part.trim()} /></div>;
-        const lineEnd = part.indexOf('\n');
-        const language = part.slice(3, lineEnd).trim();
-        const code = part.slice(lineEnd + 1).replace(/\n```\s*$/, '');
-        return <div className="codeblock" key={index}>
-            <div className="codehead"><span className="lang">{language}</span>
-                <button className="link" onClick={() => window.copilot.post({ type: 'copyCode', code })}>Copy</button>
-                <button className="link" title="Review applying code in the active editor" onClick={() => window.copilot.post({ type: 'applyCode', code })}>Apply</button>
-            </div>
-            <pre><code>{code}</code></pre>
-        </div>;
-    })}</>;
+    return <div className="markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={safeUrl} components={{
+        img: () => null, // No passive network requests from model-generated image URLs.
+        pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+        a: ({ href, children }) => href && safeUrl(href)
+            ? <a href={href} onClick={event => { event.preventDefault(); openLink(href); }}>{children}</a>
+            : <span>{children}</span>
+    }}>{content}</Markdown></div>;
 }
 
 function ToolSteps({ steps }: { steps: Step[] }) {

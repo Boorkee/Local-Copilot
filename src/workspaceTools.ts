@@ -105,6 +105,13 @@ export class WorkspaceTools {
 		private readonly options: WorkspaceToolsOptions = {}
 	) {}
 
+    /** The host uses the same symlink and workspace checks for clickable file references. */
+    async resolveWorkspaceFile(file: string): Promise<string> {
+        const { absolute } = await this.resolve(file);
+        if (!(await fs.stat(absolute)).isFile()) throw new Error('The requested path is not a workspace file.');
+        return absolute;
+    }
+
 	async execute(name: string, rawArguments: Record<string, unknown> | string): Promise<string> {
 		try {
             this.options.assertActive?.();
