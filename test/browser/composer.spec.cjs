@@ -101,6 +101,15 @@ test('offers a read-only planning mode', async ({page}) => {
   await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.mode)).toBe('plan');
 });
 
+test('attaches editor context as removable chips', async ({page}) => {
+  await page.getByRole('button',{name:'Attach active editor'}).click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.type)).toBe('attachEditor');
+  await host(page, {type:'attachments',items:[{id:'att-1',label:'src/main.ts · selection'}]});
+  await expect(page.locator('#attachment-chips button')).toContainText('src/main.ts');
+  await page.locator('#attachment-chips button').click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toEqual({type:'removeAttachment',id:'att-1'});
+});
+
 test('labels tool support and avoids chat-only agent models', async ({page}) => {
   await host(page, {type:'models', models:['chat:7b','agent:7b'], defaultModel:'chat:7b', defaultCodeModel:'chat:7b',
     capabilities:{'chat:7b':'chat','agent:7b':'tools'}});

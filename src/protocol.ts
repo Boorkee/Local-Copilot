@@ -5,7 +5,8 @@ import type { VoiceEvent } from './voiceInput';
 export const PROTOCOL_VERSION = 1;
 
 export type WebviewMessage =
-    | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'stopTask' | 'openSettings' }
+    | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'stopTask' | 'openSettings' | 'attachEditor' }
+    | { type: 'removeAttachment'; id: string }
     | { type: 'reviewDecision'; id: string; approved: boolean }
     | { type: 'openDiff'; id: string }
     | { type: 'openLocation'; path: string; line?: number }
@@ -25,6 +26,7 @@ export type HostEvent = VoiceEvent
     | { type: 'connection'; state: 'loading' | 'ready' | 'empty' | 'error'; text?: string }
     | { type: 'models'; models: string[]; defaultModel: string; defaultCodeModel: string;
         capabilities?: Record<string, 'tools' | 'chat' | 'unknown'> }
+    | { type: 'attachments'; items: Array<{ id: string; label: string }> }
     | { type: 'taskStarted'; taskId: string; sessionId: string }
     | { type: 'assistantDelta'; taskId: string; sessionId: string; text: string }
     | { type: 'toolActivity'; taskId: string; sessionId: string; stepId: string; summary: string; status: 'started' | 'done' | 'failed' }
@@ -43,8 +45,11 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     if (!record(value) || typeof value.type !== 'string') return;
     switch (value.type) {
         case 'ready': case 'startVoice': case 'stopVoice': case 'refreshModels':
-        case 'stopTask': case 'openSettings':
+        case 'stopTask': case 'openSettings': case 'attachEditor':
             return { type: value.type };
+        case 'removeAttachment':
+            if (string(value.id, 128) && value.id.length > 0) return { type: value.type, id: value.id };
+            return;
         case 'reviewDecision':
             if (string(value.id, 128) && value.id.length > 0 && typeof value.approved === 'boolean')
                 return { type: value.type, id: value.id, approved: value.approved };

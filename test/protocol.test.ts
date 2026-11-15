@@ -14,6 +14,9 @@ describe('typed webview protocol', () => {
             { type: 'openLocation', path: 'src/app.ts', line: 42 });
         assert.deepEqual(parseWebviewMessage({ type: 'sendMessage', model: 'coder', codeModel: 'coder', prompt: 'plan', mode: 'plan' }),
             { type: 'sendMessage', model: 'coder', codeModel: 'coder', prompt: 'plan', mode: 'plan' });
+        assert.deepEqual(parseWebviewMessage({ type: 'attachEditor' }), { type: 'attachEditor' });
+        assert.deepEqual(parseWebviewMessage({ type: 'removeAttachment', id: 'attachment-1' }),
+            { type: 'removeAttachment', id: 'attachment-1' });
     });
 
     it('rejects invalid messages and forged review actions', () => {
@@ -25,6 +28,7 @@ describe('typed webview protocol', () => {
             { type: 'openDiff', id: 123 },
             { type: 'openLocation', path: 'a.ts', line: -5 },
             { type: 'openExternal', url: 'javascript:alert(1)' },
+            { type: 'removeAttachment', id: '' },
             { type: 'applyCode', code: 'a'.repeat(200_001) }]) {
             assert.equal(parseWebviewMessage(value), undefined);
         }

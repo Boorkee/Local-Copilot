@@ -122,6 +122,9 @@ export function createChatViewHtml(effectsUri?: string): string {
         .command-output { margin-bottom:12px; color:var(--vscode-descriptionForeground); font-size:11px; }
         .command-output pre { max-height:140px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 	        .task-steps { margin-top:10px; border:1px solid var(--vscode-widget-border, transparent); border-radius:8px; padding:6px 9px; color:var(--vscode-descriptionForeground); font-size:var(--small); }
+	        .attachment-chips, .attached-source { display:flex; flex-wrap:wrap; gap:5px; margin:4px 8px; }
+	        .attachment-chips:empty, .attached-source:empty { display:none; }
+	        .attachment-chips button, .attached-source span { border:1px solid var(--vscode-widget-border, transparent); border-radius:12px; padding:3px 7px; color:var(--vscode-descriptionForeground); background:var(--vscode-input-background); font-size:var(--small); max-width:100%; overflow-wrap:anywhere; }
 	        .task-steps summary { cursor:pointer; }
 	        .task-steps ol { padding:0 0 0 16px; margin:8px 0 0; }
 	        .task-steps li { display:flex; justify-content:space-between; gap:8px; margin:4px 0; overflow-wrap:anywhere; }
@@ -152,11 +155,13 @@ export function createChatViewHtml(effectsUri?: string): string {
 	<div id="error" role="alert"></div>
 	<div class="composer">
 		<textarea id="prompt" rows="1" placeholder="Ask Local Copilot to build, fix, or explain…" aria-label="Message"></textarea>
+			<div id="attachment-chips" class="attachment-chips" aria-label="Attached context"></div>
 		<div class="toolbar">
 	            <label class="pick" title="Agent edits with approval; Plan reads only; Chat answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="plan">Plan</option><option value="chat">Chat</option></select></label>
 			<label class="pick" title="Chat model"><span>Chat</span><select id="model" aria-label="Chat model"></select></label>
 			<label class="pick" title="Code model used in Agent mode"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
 			<button id="refresh" class="icon" type="button" title="Refresh models" aria-label="Refresh models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
+				<button id="attach" class="icon" type="button" title="Attach active editor or selection" aria-label="Attach active editor"><svg viewBox="0 0 16 16"><path d="M6.5 13.5a3.5 3.5 0 0 1-3.5-3.5V5.5a2.5 2.5 0 0 1 5 0v4.7a1.5 1.5 0 0 1-3 0V6.5h1.3v3.7a.2.2 0 0 0 .4 0V5.5a1.2 1.2 0 0 0-2.4 0V10a2.2 2.2 0 0 0 4.4 0V5a3.5 3.5 0 1 1 7 0v5.2h-1.3V5a2.2 2.2 0 0 0-4.4 0v5a3.5 3.5 0 0 1-3.5 3.5z"/></svg></button>
 			<span class="spacer"></span>
 			<button id="send" class="send" type="button" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2z"/></svg></button>
 		</div>
@@ -176,6 +181,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		const statusElement = document.getElementById('status');
 		const errorElement = document.getElementById('error');
 		const sendButton = document.getElementById('send');
+			const attachmentsElement = document.getElementById('attachment-chips');
 		const savedState = vscode.getState() || {};
 		let busy = false;
 
@@ -184,6 +190,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 			sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim();
 			modelSelect.disabled = busy;
 			codeModelSelect.disabled = busy;
+			document.getElementById('attach').disabled = busy;
 			updateEffects();
 		}
 
@@ -242,6 +249,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		}
 
 		sendButton.addEventListener('click', sendMessage);
+		document.getElementById('attach').addEventListener('click', () => vscode.postMessage({ type: 'attachEditor' }));
 		document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refreshModels' }));
 		modelSelect.addEventListener('change', rememberModels);
 		codeModelSelect.addEventListener('change', rememberModels);
@@ -256,7 +264,17 @@ export function createChatViewHtml(effectsUri?: string): string {
 		});
 		window.addEventListener('message', event => {
 			const message = event.data;
-			if (message.type === 'connection') {
+			if (message.type === 'attachments') {
+				attachmentsElement.replaceChildren();
+				for (const item of message.items) {
+					const chip = document.createElement('button');
+					chip.type = 'button';
+					chip.textContent = item.label + ' ×';
+					chip.title = 'Remove attachment';
+					chip.addEventListener('click', () => vscode.postMessage({ type: 'removeAttachment', id: item.id }));
+					attachmentsElement.append(chip);
+				}
+			} else if (message.type === 'connection') {
                 window.copilot.connection = message.state;
                 window.copilot.connectionError = message.text || '';
                 sendButton.disabled = message.state !== 'ready' || busy || window.copilot.recording || !promptInput.value.trim();

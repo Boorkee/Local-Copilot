@@ -67,6 +67,8 @@ function Message({ entry, pending, status }: { entry: TranscriptEntry; pending?:
             : entry.role === 'assistant' ? <BasicMarkdown content={entry.content} />
                 : <div className="para">{entry.content}</div>}
         {entry.steps && <ToolSteps steps={entry.steps} />}
+        {entry.attachments && entry.attachments.length > 0 && <div className="attached-source">{entry.attachments.map((label, index) =>
+            <span key={index}>Attached: {label}</span>)}</div>}
         {entry.changes && entry.changes.length > 0 && <div className="changes">{entry.changes.map((change, index) =>
             <div key={index}>{change.action === 'delete' ? 'Deleted ' : 'Changed '}{change.path}</div>)}</div>}
     </article>;

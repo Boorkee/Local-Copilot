@@ -24,6 +24,8 @@ describe('createChatViewHtml', () => {
 			'id="model"',
 			'id="codeModel"',
 			'id="refresh"',
+			'id="attach"',
+			'id="attachment-chips"',
 			'type: \'sendMessage\'',
 			'type: \'refreshModels\''
 		]) {
