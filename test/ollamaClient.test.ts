@@ -52,209 +52,120 @@ describe('OllamaClient.listModels', () => {
 	});
 });
 
-describe('OllamaClient.chat', () => {
-	it('unloads every loaded model with an empty keep_alive: 0 request before chat', async () => {
-		const { client, requests } = createClient(async request => {
-			if (request.url.pathname === '/api/ps') {
-				return jsonResponse({ models: [{ name: 'large:latest' }, { model: 'small:latest' }] });
-			}
-			if (request.url.pathname === '/api/generate') {
-				return jsonResponse({});
-			}
-			return jsonResponse({ message: { content: 'done' } });
-		});
-		const history: ChatMessage[] = [{ role: 'user', content: 'prior' }, { role: 'assistant', content: 'answer' }];
+describe('OllamaClient.chat and streaming', () => {
+    it('streams by default without unloading models owned by other clients', async () => {
+        const { client, requests } = createClient(async () => jsonResponse({ message: { content: 'done' } }));
+        const history: ChatMessage[] = [{ role: 'user', content: 'prior' }];
+        const deltas: string[] = [];
+        assert.equal(await client.chat('small:latest', 'implement this', history, { onDelta: delta => deltas.push(delta) }), 'done');
+        assert.equal(await client.chat('large:latest', 'new prompt', []), 'done');
+        assert.deepEqual(requests.map(request => request.url.pathname), ['/api/chat', '/api/chat']);
+        assert.deepEqual(bodyOf(requests[0]), { model: 'small:latest', messages: [...history, { role: 'user', content: 'implement this' }], stream: true });
+        assert.deepEqual(deltas, ['done']);
+    });
 
-		assert.equal(await client.chat('small:latest', 'implement this', history), 'done');
-		assert.deepEqual(requests.map(request => request.url.pathname), [
-			'/api/ps',
-			'/api/generate',
-			'/api/generate',
-			'/api/chat'
-		]);
-		assert.deepEqual(requests.slice(1, 3).map(bodyOf), [
-			{ model: 'large:latest', prompt: '', stream: false, keep_alive: 0 },
-			{ model: 'small:latest', prompt: '', stream: false, keep_alive: 0 }
-		]);
-		for (const request of requests.slice(1, 3)) {
-			assert.equal(request.init.method, 'POST');
-		}
-		assert.deepEqual(bodyOf(requests[3]), {
-			model: 'small:latest',
-			messages: [...history, { role: 'user', content: 'implement this' }],
-			stream: false
-		});
-	});
+    it('unloads only our previous model with opt-in conserve and supports keep', async () => {
+        const calls: CapturedRequest[] = [];
+        const fetcher: typeof fetch = async (input, init) => {
+            calls.push({ url: new URL(input.toString()), init: init ?? {} });
+            return jsonResponse({ message: { content: 'ok' } });
+        };
+        const conserve = new OllamaClient('http://localhost:11434', 1000, fetcher, 'conserve');
+        await conserve.chat('one:7b', 'first', []);
+        await conserve.chat('two:14b', 'second', []);
+        await conserve.chat('two:14b', 'third', []);
+        assert.deepEqual(calls.map(call => call.url.pathname), ['/api/chat', '/api/generate', '/api/chat', '/api/chat']);
+        assert.deepEqual(bodyOf(calls[1]), { model: 'one:7b', prompt: '', stream: false, keep_alive: 0 });
 
-	it('does not repeat the unload handshake when continuing with the active model', async () => {
-		let runningModelsCalls = 0;
-		const { client, requests } = createClient(async request => {
-			if (request.url.pathname === '/api/ps') {
-				runningModelsCalls++;
-				return jsonResponse({ models: [{ name: 'coder:7b' }] });
-			}
-			if (request.url.pathname === '/api/generate') {
-				return jsonResponse({});
-			}
-			return jsonResponse({ message: { content: 'ok' } });
-		});
+        const keep = new OllamaClient('http://localhost:11434', 1000, fetcher, 'keep');
+        await keep.chat('small:latest', 'hello', []);
+        assert.equal(bodyOf(calls.at(-1)!).keep_alive, -1);
+    });
 
-		await client.chat('coder:7b', 'first', []);
-		await client.chat('coder:7b', 'second', []);
+    it('serializes requests while keeping the queue responsive to cancellation', async () => {
+        let release!: () => void;
+        let started!: () => void;
+        const waiting = new Promise<void>(resolve => { release = resolve; });
+        const firstStarted = new Promise<void>(resolve => { started = resolve; });
+        const { client, requests } = createClient(async () => {
+            if (requests.length === 1) { started(); await waiting; }
+            return jsonResponse({ message: { content: 'ok' } });
+        });
+        const first = client.chat('one', 'first', []);
+        await firstStarted;
+        const controller = new AbortController();
+        const second = client.chat('two', 'second', [], { signal: controller.signal });
+        controller.abort();
+        release();
+        await first;
+        await assert.rejects(second, /aborted/);
+        assert.equal(requests.length, 1);
+    });
 
-		assert.equal(runningModelsCalls, 1);
-		assert.equal(requests.filter(request => request.url.pathname === '/api/chat').length, 2);
-	});
+    it('joins fragmented ndjson and delivers deltas before completion', async () => {
+        const encoder = new TextEncoder();
+        let finish!: () => void;
+        const completed = new Promise<void>(resolve => { finish = resolve; });
+        const stream = new ReadableStream<Uint8Array>({
+            async start(controller) {
+                controller.enqueue(encoder.encode('{"message":{"content":"Hel'));
+                controller.enqueue(encoder.encode('lo "}}\n{"message":{"content":"🌙"}}\n'));
+                await completed;
+                controller.enqueue(encoder.encode('{"done":true}\n'));
+                controller.close();
+            }
+        });
+        const { client } = createClient(async () => new Response(stream, { headers: { 'content-type': 'application/x-ndjson' } }));
+        const deltas: string[] = [];
+        const result = client.chat('coder', 'hello', [], { onDelta: delta => { deltas.push(delta); if (deltas.length === 2) finish(); } });
+        assert.equal(await result, 'Hello 🌙');
+        assert.deepEqual(deltas, ['Hello ', '🌙']);
+    });
 
-	it('unloads previously active models even when Ollama omits them from /api/ps', async () => {
-		const unloaded: string[] = [];
-		let chatCalls = 0;
-		const { client } = createClient(async request => {
-			if (request.url.pathname === '/api/ps') {
-				return jsonResponse({ models: [] });
-			}
-			if (request.url.pathname === '/api/generate') {
-				unloaded.push(String(bodyOf(request).model));
-				return jsonResponse({});
-			}
-			chatCalls++;
-			return jsonResponse({ message: { content: 'ok' } });
-		});
+    it('aggregates indexed tool arguments and multiple tool calls', async () => {
+        const lines = [
+            { message: { tool_calls: [{ index: 0, function: { name: 'read_', arguments: '{"path":' } }] } },
+            { message: { tool_calls: [{ index: 0, function: { name: 'file', arguments: '"src/a.ts"}' } }] } },
+            { message: { tool_calls: [{ index: 1, function: { name: 'list_files', arguments: {} } }] } },
+            { done: true }
+        ];
+        const { client } = createClient(async () => new Response(lines.map(line => JSON.stringify(line)).join('\n') + '\n', {
+            headers: { 'content-type': 'application/x-ndjson' }
+        }));
+        const reply = await client.complete('coder', [{ role: 'user', content: 'inspect' }], []);
+        assert.deepEqual(reply.tool_calls, [
+            { function: { name: 'read_file', arguments: { path: 'src/a.ts' } } },
+            { function: { name: 'list_files', arguments: {} } }
+        ]);
+    });
 
-		await client.chat('first:7b', 'first', []);
-		await client.chat('second:14b', 'second', []);
+    it('reports stream errors, invalid events, and incomplete tool calls', async () => {
+        for (const [stream, expected] of [
+            ['{"error":"model unloaded"}\n', /model unloaded/],
+            ['not json\n', /malformed streamed JSON/],
+            ['{"message":{"tool_calls":"invalid"}}\n', /invalid tool calls/],
+            ['{"message":{"tool_calls":[{"index":0,"function":{"name":"edit","arguments":"{"}}]}}\n', /invalid streamed tool arguments/],
+            ['{"done":true}\n', /without message content/]
+        ] as const) {
+            const { client } = createClient(async () => new Response(stream, { headers: { 'content-type': 'application/x-ndjson' } }));
+            await assert.rejects(client.chat('coder', 'prompt', []), expected);
+        }
+    });
 
-		assert.deepEqual(unloaded, ['first:7b']);
-		assert.equal(chatCalls, 2);
-	});
+    it('stops a streaming request when the user cancels', async () => {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(encoder.encode('{"message":{"content":"first"}}\n')); }
+        });
+        const { client } = createClient(async () => new Response(stream, { headers: { 'content-type': 'application/x-ndjson' } }));
+        await assert.rejects(client.chat('coder', 'prompt', [], { onDelta: () => client.cancelRequests() }), /cancelled/);
+    });
 
-	it('unloads duplicate loaded-model entries only once', async () => {
-		const unloaded: string[] = [];
-		const { client } = createClient(async request => {
-			if (request.url.pathname === '/api/ps') {
-				return jsonResponse({ models: [{ name: 'same:latest' }, { model: 'same:latest' }] });
-			}
-			if (request.url.pathname === '/api/generate') {
-				unloaded.push(String(bodyOf(request).model));
-				return jsonResponse({});
-			}
-			return jsonResponse({ message: { content: 'ok' } });
-		});
-
-		await client.chat('next:latest', 'hello', []);
-
-		assert.deepEqual(unloaded, ['same:latest']);
-	});
-
-	it('repeats the unload handshake after a partial model unload fails', async () => {
-		let failedUnload = false;
-		let oldModelChatCalls = 0;
-		let processListCalls = 0;
-		const { client, requests } = createClient(async request => {
-			if (request.url.pathname === '/api/ps') {
-				processListCalls++;
-				if (processListCalls === 1) {
-					return jsonResponse({ models: [] });
-				}
-				return jsonResponse({ models: [{ name: 'old:latest' }, { name: 'new:latest' }] });
-			}
-			if (request.url.pathname === '/api/generate') {
-				const model = bodyOf(request).model;
-				if (model === 'new:latest' && !failedUnload) {
-					failedUnload = true;
-					return new Response('unload failed', { status: 500 });
-				}
-				return jsonResponse({});
-			}
-			if (bodyOf(request).model === 'old:latest') {
-				oldModelChatCalls++;
-			}
-			return jsonResponse({ message: { content: 'ok' } });
-		});
-
-		await client.chat('old:latest', 'first', []);
-		await assert.rejects(client.chat('new:latest', 'switch', []), /unload failed/);
-		await client.chat('old:latest', 'retry old model', []);
-
-		assert.equal(oldModelChatCalls, 2);
-		assert.equal(requests.filter(request => request.url.pathname === '/api/ps').length, 3);
-		assert.deepEqual(requests.slice(-4).map(request => request.url.pathname), [
-			'/api/ps',
-			'/api/generate',
-			'/api/generate',
-			'/api/chat'
-		]);
-	});
-
-	it('serializes concurrent chats so model unload and chat requests cannot overlap', async () => {
-		let resumeFirstProcessList: (() => void) | undefined;
-		let firstProcessListStarted: (() => void) | undefined;
-		const firstProcessList = new Promise<void>(resolve => {
-			firstProcessListStarted = resolve;
-		});
-		const waitForFirstProcessList = new Promise<void>(resolve => {
-			resumeFirstProcessList = resolve;
-		});
-		let processListCalls = 0;
-		const paths: string[] = [];
-		const { client } = createClient(async request => {
-			paths.push(request.url.pathname);
-			if (request.url.pathname === '/api/ps') {
-				processListCalls++;
-				if (processListCalls === 1) {
-					firstProcessListStarted?.();
-					await waitForFirstProcessList;
-					return jsonResponse({ models: [] });
-				}
-				return jsonResponse({ models: [{ name: 'first:latest' }] });
-			}
-			if (request.url.pathname === '/api/generate') {
-				return jsonResponse({});
-			}
-			return jsonResponse({ message: { content: 'ok' } });
-		});
-
-		const firstChat = client.chat('first:latest', 'first prompt', []);
-		await firstProcessList;
-		const secondChat = client.chat('second:latest', 'second prompt', []);
-		assert.equal(processListCalls, 1);
-		resumeFirstProcessList?.();
-		await Promise.all([firstChat, secondChat]);
-
-		assert.deepEqual(paths, [
-			'/api/ps',
-			'/api/chat',
-			'/api/ps',
-			'/api/generate',
-			'/api/chat'
-		]);
-	});
-
-	it('stops before chat if the loaded-model list is malformed', async () => {
-		const { client, requests } = createClient(async () => jsonResponse({ models: null }));
-
-		await assert.rejects(client.chat('coder:7b', 'hello', []), /invalid loaded-model list/);
-		assert.deepEqual(requests.map(request => request.url.pathname), ['/api/ps']);
-	});
-
-	it('stops before chat if a loaded-model entry has no valid name', async () => {
-		const { client, requests } = createClient(async () => jsonResponse({ models: [{}] }));
-
-		await assert.rejects(client.chat('coder:7b', 'hello', []), /invalid loaded-model entry/);
-		assert.deepEqual(requests.map(request => request.url.pathname), ['/api/ps']);
-	});
-
-	it('reports Ollama chat errors and missing response content', async () => {
-		const errorClient = createClient(async request => request.url.pathname === '/api/ps'
-			? jsonResponse({ models: [] })
-			: jsonResponse({ error: 'model unavailable' })).client;
-		await assert.rejects(errorClient.chat('coder:7b', 'hello', []), /model unavailable/);
-
-		const contentClient = createClient(async request => request.url.pathname === '/api/ps'
-			? jsonResponse({ models: [] })
-			: jsonResponse({ message: {} })).client;
-		await assert.rejects(contentClient.chat('coder:7b', 'hello', []), /without message content/);
-	});
+    it('times out an idle response stream', async () => {
+        const stream = new ReadableStream<Uint8Array>({ start() {} });
+        const { client } = createClient(async () => new Response(stream, { headers: { 'content-type': 'application/x-ndjson' } }), 5);
+        await assert.rejects(client.chat('coder', 'prompt', []), /timed out after 5 ms/);
+    });
 });
 
 describe('OllamaClient request failures', () => {

@@ -1,5 +1,6 @@
 import { ChatMessage, OllamaClient, OllamaMessage } from './ollamaClient';
 import { WorkspaceTools, workspaceToolDefinitions } from './workspaceTools';
+import { randomUUID } from 'node:crypto';
 
 export type AgentOptions = {
 	client: Pick<OllamaClient, 'complete'>;
@@ -10,6 +11,8 @@ export type AgentOptions = {
     history?: ChatMessage[];
     signal?: AbortSignal;
 	onProgress?: (message: string) => void;
+    onDelta?: (text: string) => void;
+    onToolActivity?: (stepId: string, tool: string, status: 'started' | 'done' | 'failed') => void;
 };
 
 export type AgentResult = {
@@ -36,7 +39,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 
 	for (let step = 0; step < maxSteps; step++) {
 		options.signal?.throwIfAborted();
-		const reply = await options.client.complete(options.model, messages, workspaceToolDefinitions);
+		const reply = await options.client.complete(options.model, messages, workspaceToolDefinitions,
+            { signal: options.signal, onDelta: options.onDelta });
 		options.signal?.throwIfAborted();
 		messages.push(reply);
 
@@ -47,7 +51,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 		for (const call of reply.tool_calls) {
 			options.signal?.throwIfAborted();
 			options.onProgress?.(`Agent: ${call.function.name}`);
-			const result = await options.tools.execute(call.function.name, call.function.arguments);
+			const stepId = randomUUID();
+            options.onToolActivity?.(stepId, call.function.name, 'started');
+            let result: string;
+            try {
+                result = await options.tools.execute(call.function.name, call.function.arguments);
+                options.onToolActivity?.(stepId, call.function.name, result.startsWith('Error:') ? 'failed' : 'done');
+            } catch (error) {
+                options.onToolActivity?.(stepId, call.function.name, 'failed');
+                throw error;
+            }
 			messages.push({ role: 'tool', content: result, tool_name: call.function.name });
 		}
 	}

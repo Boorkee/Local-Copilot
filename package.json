@@ -85,6 +85,12 @@
           "default": 300000,
           "minimum": 1000,
           "description": "Maximum time to wait for an Ollama request."
+        },
+        "localCopilot.modelResidency": {
+          "type": "string",
+          "enum": ["automatic", "conserve", "keep"],
+          "default": "automatic",
+          "description": "Automatic lets Ollama manage models (recommended). Conserve unloads only Local Copilot's previous model when switching; this can affect other clients sharing it. Keep asks Ollama to retain the current model in memory."
         }
       }
     }

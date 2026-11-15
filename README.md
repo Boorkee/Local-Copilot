@@ -18,7 +18,7 @@ The default model is `qwen2.5-coder:7b`. The model picker is populated from Olla
 
 ## Tests and CI
 
-Run `npm test` to compile the extension and execute the unit tests. The tests cover Ollama requests and model unloading, sidebar HTML/CSP, editor replacement range selection, extension metadata, debug configuration, and the activity-bar icon.
+Run `npm test` to compile the extension and execute the unit tests. The tests cover Ollama streaming and cancellation, sidebar HTML/CSP, editor replacement range selection, extension metadata, debug configuration, and the activity-bar icon.
 
 GitHub Actions runs the compile and unit-test suite on Windows, macOS, and Linux with Node 20 and 24 for pushes and pull requests. Pushing a `v*` tag also builds a VSIX and attaches it to a GitHub Release.
 
@@ -28,7 +28,7 @@ Chats are saved automatically and survive moving the view, reloading, and restar
 
 ## Model memory management
 
-When changing models, the extension checks Ollama's loaded-model list and sends an empty `/api/generate` request with `keep_alive: 0` for each loaded model before it starts the selected model. This releases the previous model from VRAM rather than relying on Ollama's keep-alive timeout.
+Model residency defaults to `automatic`, letting Ollama manage its own memory without unloading models used by other clients. In settings, `conserve` requests unloading only the model Local Copilot previously used when switching, which can affect another client using that model. `keep` requests that Ollama keep the current model loaded. Responses stream as they arrive and can be stopped from the sidebar.
 
 ## Agent mode and inline approvals
 

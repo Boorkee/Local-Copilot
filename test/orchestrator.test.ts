@@ -107,12 +107,8 @@ describe('delegateCodingTask (chat -> code -> chat handoff)', () => {
 
 			assert.equal(await fs.readFile(path.join(root, 'src', 'hello.ts'), 'utf8'), 'export const hello = "hi";');
 			assert.deepEqual(calls.map(call => `${call.path}:${String(call.body.model ?? '')}:${call.body.keep_alive ?? ''}`), [
-				'/api/ps::',
-				'/api/generate:chat:7b:0',
 				'/api/chat:code:14b:',
 				'/api/chat:code:14b:',
-				'/api/ps::',
-				'/api/generate:code:14b:0',
 				'/api/chat:chat:7b:'
 			]);
 

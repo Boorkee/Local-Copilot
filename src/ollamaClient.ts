@@ -38,12 +38,64 @@ type OllamaChatResponse = {
 	error?: string;
 };
 
-type OllamaRunningResponse = {
-	models?: Array<{
-		name?: string;
-		model?: string;
-	}>;
-};
+export type CompletionOptions = { signal?: AbortSignal; onDelta?: (text: string) => void };
+export type ModelResidencyPolicy = 'automatic' | 'conserve' | 'keep';
+
+/** Streamed Ollama calls may deliver content and tool arguments across many chunks. */
+class ChatAccumulator {
+    private content = '';
+    private readonly calls: ToolCall[] = [];
+    private readonly indexes = new Map<number, number>();
+
+    add(value: OllamaChatResponse, onDelta?: (text: string) => void): void {
+        if (value.error) throw new Error(`Ollama could not complete the chat: ${value.error}`);
+        const message = value.message;
+        if (!message) return;
+        if (message.content !== undefined && typeof message.content !== 'string') throw new Error('Ollama returned invalid message content.');
+        if (message.content) {
+            this.content += message.content;
+            onDelta?.(message.content);
+        }
+        if (message.tool_calls !== undefined && !Array.isArray(message.tool_calls)) throw new Error('Ollama returned invalid tool calls.');
+        for (const raw of message.tool_calls ?? []) {
+            if (!raw || typeof raw !== 'object' || !raw.function || typeof raw.function !== 'object')
+                throw new Error('Ollama returned invalid tool calls.');
+            const call = raw as ToolCall & { index?: number };
+            const part = call.function;
+            if (typeof part.name !== 'string' || (typeof part.arguments !== 'string' &&
+                (typeof part.arguments !== 'object' || part.arguments === null || Array.isArray(part.arguments))))
+                throw new Error('Ollama returned invalid tool calls.');
+            const index = Number.isInteger(call.index) && (call.index ?? -1) >= 0 ? call.index! : undefined;
+            let slot = index === undefined ? undefined : this.indexes.get(index);
+            if (slot === undefined) {
+                slot = this.calls.length;
+                this.calls.push({ function: { name: '', arguments: '' } });
+                if (index !== undefined) this.indexes.set(index, slot);
+            }
+            const current = this.calls[slot].function;
+            if (part.name && current.name !== part.name) {
+                current.name = part.name.startsWith(current.name) ? part.name : current.name + part.name;
+            }
+            if (typeof part.arguments === 'string') {
+                current.arguments = typeof current.arguments === 'string' ? current.arguments + part.arguments : part.arguments;
+            } else {
+                current.arguments = { ...(typeof current.arguments === 'string' ? {} : current.arguments), ...part.arguments };
+            }
+        }
+    }
+
+    result(): OllamaMessage {
+        if (!this.content && !this.calls.length) throw new Error('Ollama returned a chat response without message content.');
+        for (const call of this.calls) {
+            if (!call.function.name) throw new Error('Ollama returned an incomplete tool call.');
+            if (typeof call.function.arguments === 'string') {
+                try { call.function.arguments = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>; }
+                catch { throw new Error('Ollama returned invalid streamed tool arguments.'); }
+            }
+        }
+        return { role: 'assistant', content: this.content, tool_calls: this.calls.length ? this.calls : undefined };
+    }
+}
 
 export class OllamaClient {
 	private readonly requests = new Set<AbortController>();
@@ -53,7 +105,8 @@ export class OllamaClient {
 	constructor(
 		private readonly baseUrl: string,
 		private readonly timeoutMs: number,
-		private readonly fetcher: typeof fetch = fetch
+		private readonly fetcher: typeof fetch = fetch,
+        private readonly residency: ModelResidencyPolicy = 'automatic'
 	) {}
 
 	cancelRequests(): void { for (const request of this.requests) request.abort(); }
@@ -66,81 +119,103 @@ export class OllamaClient {
 		return result.models;
 	}
 
-	async chat(model: string, prompt: string, history: ChatMessage[]): Promise<string> {
-		const message = await this.complete(model, [...history, { role: 'user', content: prompt }]);
+	async chat(model: string, prompt: string, history: ChatMessage[], options?: CompletionOptions): Promise<string> {
+		const message = await this.complete(model, [...history, { role: 'user', content: prompt }], undefined, options);
 		return message.content;
 	}
 
-	complete(model: string, messages: OllamaMessage[], tools?: ToolDefinition[]): Promise<OllamaMessage> {
-		const queued = this.chatQueue.then(() => this.performComplete(model, messages, tools));
+	complete(model: string, messages: OllamaMessage[], tools?: ToolDefinition[], options: CompletionOptions = {}): Promise<OllamaMessage> {
+		const queued = this.chatQueue.then(() => {
+            options.signal?.throwIfAborted();
+            return this.performComplete(model, messages, tools, options);
+        });
 		this.chatQueue = queued.then(() => undefined, () => undefined);
 		return queued;
 	}
 
-	private async performComplete(model: string, messages: OllamaMessage[], tools?: ToolDefinition[]): Promise<OllamaMessage> {
-		if (model !== this.activeModel) {
-			await this.unloadLoadedModels();
-		}
-
-		const response = await this.request<OllamaChatResponse>('/api/chat', {
+	private async performComplete(model: string, messages: OllamaMessage[], tools: ToolDefinition[] | undefined, options: CompletionOptions): Promise<OllamaMessage> {
+        // Never unload models owned by other clients; opt-in conserve unloads only our previous model.
+        if (this.residency === 'conserve' && this.activeModel && model !== this.activeModel) {
+            await this.request('/api/generate', { model: this.activeModel, prompt: '', stream: false, keep_alive: 0 }, options.signal);
+            this.activeModel = undefined;
+        }
+        const result = await this.requestChat({
 			model,
 			messages,
-			stream: false,
-			tools
-		});
-
-		if (response.error) {
-			throw new Error(`Ollama could not complete the chat: ${response.error}`);
-		}
-
-		const content = response.message?.content;
-		const toolCalls = response.message?.tool_calls;
-		if (toolCalls !== undefined && !Array.isArray(toolCalls)) {
-			throw new Error('Ollama returned invalid tool calls.');
-		}
-		if (typeof content !== 'string' && !toolCalls?.length) {
-			throw new Error('Ollama returned a chat response without message content.');
-		}
-
+			stream: true,
+			tools,
+            ...(this.residency === 'keep' ? { keep_alive: -1 } : {})
+        }, options);
 		this.activeModel = model;
-		return { role: 'assistant', content: content ?? '', tool_calls: toolCalls?.length ? toolCalls : undefined };
+		return result;
 	}
 
-	private async unloadLoadedModels(): Promise<void> {
-		const previouslyActiveModel = this.activeModel;
-		this.activeModel = undefined;
-		const running = await this.request<OllamaRunningResponse>('/api/ps');
-		if (!Array.isArray(running.models)) {
-			throw new Error('Ollama returned an invalid loaded-model list; refusing to start another model.');
-		}
-		const models = new Set<string>();
-		for (const entry of running.models) {
-			const name = entry.name ?? entry.model;
-			if (typeof name !== 'string' || !name) {
-				throw new Error('Ollama returned an invalid loaded-model entry; refusing to start another model.');
-			}
-			models.add(name);
-		}
-		if (previouslyActiveModel) {
-			models.add(previouslyActiveModel);
-		}
+	private async requestChat(body: unknown, options: CompletionOptions): Promise<OllamaMessage> {
+        return this.withResponse('/api/chat', body, options.signal, async (response, signal) => {
+            const accumulator = new ChatAccumulator();
+            // Some proxies and test servers return a single JSON object even when streaming is requested.
+            if (response.headers.get('content-type')?.includes('application/json')) {
+                let value: OllamaChatResponse;
+                try { value = await response.json() as OllamaChatResponse; }
+                catch { throw new Error('Ollama returned invalid JSON from /api/chat.'); }
+                signal.throwIfAborted();
+                accumulator.add(value, options.onDelta);
+                return accumulator.result();
+            }
+            if (!response.body) throw new Error('Ollama returned an empty response stream.');
+            const reader = response.body.getReader();
+            const cancelReader = () => { void reader.cancel().catch(() => undefined); };
+            signal.addEventListener('abort', cancelReader, { once: true });
+            const decoder = new TextDecoder();
+            let buffer = '';
+            const consume = (line: string) => {
+                if (!line.trim()) return;
+                let value: OllamaChatResponse;
+                try { value = JSON.parse(line) as OllamaChatResponse; }
+                catch { throw new Error('Ollama returned malformed streamed JSON.'); }
+                accumulator.add(value, options.onDelta);
+            };
+            try {
+                while (true) {
+                    signal.throwIfAborted();
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    if (buffer.length > 1_000_000) throw new Error('Ollama stream event exceeds the size limit.');
+                    let end: number;
+                    while ((end = buffer.indexOf('\n')) !== -1) {
+                        consume(buffer.slice(0, end).trim());
+                        buffer = buffer.slice(end + 1);
+                    }
+                }
+                buffer += decoder.decode();
+                signal.throwIfAborted();
+                consume(buffer.trim());
+                return accumulator.result();
+            } finally {
+                signal.removeEventListener('abort', cancelReader);
+                reader.releaseLock();
+            }
+        });
+    }
 
-		for (const loadedModel of models) {
-			await this.request<unknown>('/api/generate', {
-				model: loadedModel,
-				prompt: '',
-				stream: false,
-				keep_alive: 0
-			});
-		}
+	private async request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+		return this.withResponse(path, body, signal, async response => {
+            let result: unknown;
+            try { result = await response.json(); }
+            catch { throw new Error(`Ollama returned invalid JSON from ${path}.`); }
+            return result as T;
+        });
+    }
 
-		this.activeModel = undefined;
-	}
-
-	private async request<T>(path: string, body?: unknown): Promise<T> {
+    private async withResponse<T>(path: string, body: unknown, signal: AbortSignal | undefined,
+        read: (response: Response, signal: AbortSignal) => Promise<T>): Promise<T> {
 		const url = new URL(path, `${this.baseUrl.replace(/\/+$/, '')}/`);
 		const controller = new AbortController();
 		this.requests.add(controller);
+		const externalAbort = () => controller.abort();
+        signal?.addEventListener('abort', externalAbort, { once: true });
+        if (signal?.aborted) controller.abort();
         let timedOut = false;
 		const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, this.timeoutMs);
 
@@ -151,19 +226,15 @@ export class OllamaClient {
 				body: body === undefined ? undefined : JSON.stringify(body),
 				signal: controller.signal
 			});
-			const responseText = await response.text();
 			if (!response.ok) {
+				const responseText = await response.text();
 				throw new Error(`Ollama request failed (${response.status}): ${responseText.slice(0, 500)}`);
 			}
-			let result: unknown;
-			try {
-				result = JSON.parse(responseText);
-			} catch {
-				throw new Error(`Ollama returned invalid JSON from ${path}.`);
-			}
-			return result as T;
+			const value = await read(response, controller.signal);
+            controller.signal.throwIfAborted();
+            return value;
 		} catch (error) {
-			if (error instanceof Error && error.name === 'AbortError') {
+			if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
 				throw new Error(timedOut ? `Ollama request timed out after ${this.timeoutMs} ms.` : 'Ollama request cancelled.');
 			}
             if (error instanceof TypeError) {
@@ -172,6 +243,7 @@ export class OllamaClient {
 			throw error;
 		} finally {
 			clearTimeout(timeout);
+            signal?.removeEventListener('abort', externalAbort);
             this.requests.delete(controller);
 		}
 	}

@@ -54,6 +54,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 	private readonly extensionUri: vscode.Uri;
     private readonly reviews = new ReviewQueue(review => this.post({ type: 'review', review: review ?? null }));
     private taskController?: AbortController;
+    private streamBuffer = '';
+    private streamTimer?: ReturnType<typeof setTimeout>;
     private commandOutput = '';
     private connection: 'loading' | 'ready' | 'empty' | 'error' = 'loading';
     private connectionError = '';
@@ -66,7 +68,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.client = this.createClient();
 		vscode.workspace.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration('localCopilot.ollamaBaseUrl')
-				|| event.affectsConfiguration('localCopilot.requestTimeoutMs')) {
+				|| event.affectsConfiguration('localCopilot.requestTimeoutMs')
+                || event.affectsConfiguration('localCopilot.modelResidency')) {
 				this.client = this.createClient();
 			}
 		}, undefined, context.subscriptions);
@@ -143,9 +146,25 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		const configuration = vscode.workspace.getConfiguration('localCopilot');
 		return new OllamaClient(
 			configuration.get<string>('ollamaBaseUrl', 'http://127.0.0.1:11434'),
-			configuration.get<number>('requestTimeoutMs', 300000)
+			configuration.get<number>('requestTimeoutMs', 300000),
+            fetch,
+            configuration.get<'automatic' | 'conserve' | 'keep'>('modelResidency', 'automatic')
 		);
 	}
+
+    private flushDelta(chatId: string, taskId: string): void {
+        if (this.streamTimer) clearTimeout(this.streamTimer);
+        this.streamTimer = undefined;
+        const text = this.streamBuffer;
+        this.streamBuffer = '';
+        if (text) this.post({ type: 'assistantDelta', sessionId: chatId, taskId, text });
+    }
+
+    private addDelta(chatId: string, taskId: string, text: string): void {
+        if (this.taskId !== taskId || !text) return;
+        this.streamBuffer += text;
+        if (!this.streamTimer) this.streamTimer = setTimeout(() => this.flushDelta(chatId, taskId), 33);
+    }
 
 	private postState(): void {
 		const chat = this.store.active();
@@ -175,6 +194,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.taskId = taskId;
 		this.pending = { chatId: chat.id, prompt };
 		this.taskController = new AbortController();
+        this.streamBuffer = '';
         this.commandOutput = '';
         this.setStatus('Thinking…');
         this.postState();
@@ -188,6 +208,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 			failure = error instanceof Error ? error.message : String(error);
             if (/does not support tools/i.test(failure)) failure += ' Choose a tool-capable Code model for Agent mode, or use Chat mode for this model.';
 		}
+		this.flushDelta(chat.id, taskId);
 		const cancelled = this.taskController.signal.aborted;
 		this.reviews.cancel();
         this.taskController = undefined;
@@ -247,8 +268,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                         try {
                             content = tools
                                 ? (await runAgent({ client: this.client, model, task: prompt, history: chat.history.slice(-20), tools,
-                                    signal: this.taskController!.signal, onProgress: text => this.setStatus(text) })).summary
-                                : await this.client.chat(model, prompt, [...chat.history]);
+                                    signal: this.taskController!.signal, onProgress: text => this.setStatus(text),
+                                    onDelta: text => this.addDelta(chat.id, this.taskId!, text),
+                                    onToolActivity: (stepId, tool, status) => this.post({ type: 'toolActivity',
+                                        taskId: this.taskId!, sessionId: chat.id, stepId, summary: tool.replace(/_/g, ' '), status }) })).summary
+                                : await this.client.chat(model, prompt, [...chat.history],
+                                    { signal: this.taskController!.signal, onDelta: text => this.addDelta(chat.id, this.taskId!, text) });
                         } catch (error) {
                             if (!tools?.changes.length) throw error;
                             content = `Task incomplete: ${error instanceof Error ? error.message : String(error)}. Previously kept file changes remain applied.`;

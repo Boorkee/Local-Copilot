@@ -59,13 +59,9 @@ function describeChanges(changes: FileChange[]): string {
 		: '- no files were changed';
 }
 
-/**
- * Runs the chat -> code -> chat handoff. OllamaClient unloads the previously loaded
- * model (keep_alive: 0) whenever a different model is requested, so only one model
- * occupies VRAM at a time.
- */
+/** Runs a chat -> code -> chat handoff without changing other Ollama clients' model residency. */
 export async function delegateCodingTask(options: DelegationOptions): Promise<DelegationResult> {
-	options.onProgress?.(`Unloading chat model and loading ${options.codeModel}…`);
+	options.onProgress?.(`Switching to ${options.codeModel}…`);
 	let agent: { summary: string; completed: boolean };
 	try {
 		agent = await runAgent({
@@ -99,7 +95,7 @@ export async function delegateCodingTask(options: DelegationOptions): Promise<De
 		'Briefly tell me what was done. Answer my follow-up questions yourself using this report; do not ask for the coding model again.'
 	].join('\n');
 
-	options.onProgress?.(`Unloading ${options.codeModel} and reloading ${options.chatModel}…`);
+	options.onProgress?.(`Switching to ${options.chatModel}…`);
 	const reply = await options.client.complete(options.chatModel, [
 		...(options.systemPrompt ? [{ role: 'system', content: options.systemPrompt } as OllamaMessage] : []),
 		...options.history,
