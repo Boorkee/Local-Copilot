@@ -50,6 +50,15 @@ describe('OllamaClient.listModels', () => {
 
 		await assert.rejects(client.listModels(), /invalid model list/);
 	});
+
+	it('keeps size metadata and rejects malformed metadata', async () => {
+		const { client } = createClient(async () => jsonResponse({ models: [
+			{ name: 'coder', size: 4500000, details: { parameter_size: '7B' } }
+		] }));
+		assert.deepEqual(await client.listModels(), [{ name: 'coder', size: 4500000, details: { parameter_size: '7B' } }]);
+		const invalid = createClient(async () => jsonResponse({ models: [{ name: 'bad', size: 'enormous' }] }));
+		await assert.rejects(invalid.client.listModels(), /invalid model metadata/);
+	});
 });
 
 describe('Ollama model capabilities', () => {

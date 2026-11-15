@@ -28,6 +28,8 @@ export type ToolDefinition = {
 
 export type OllamaModel = {
 	name: string;
+	size?: number;
+	details?: { parameter_size?: string; quantization_level?: string };
 };
 
 type OllamaChatResponse = {
@@ -123,6 +125,11 @@ export class OllamaClient {
 		if (!Array.isArray(result.models)) {
 			throw new Error('Ollama returned an invalid model list.');
 		}
+		if (!result.models.every(model => model && typeof model.name === 'string' && model.name.length > 0 &&
+			(model.size === undefined || (typeof model.size === 'number' && Number.isFinite(model.size))) &&
+			(model.details === undefined || (typeof model.details === 'object' && model.details !== null &&
+				(model.details.parameter_size === undefined || typeof model.details.parameter_size === 'string')))))
+			throw new Error('Ollama returned invalid model metadata.');
 		return result.models;
 	}
 
