@@ -95,14 +95,15 @@ test('falls back to Auto when the configured default is missing', async ({page})
 });
 
 test('offers a read-only planning mode', async ({page}) => {
-  await page.getByRole('combobox',{name:'Assistant mode'}).selectOption('plan');
+  await page.locator('#mode-trigger').click();
+  await page.getByRole('menuitemradio',{name:/^Plan/}).click();
   await page.locator('#prompt').fill('Plan these changes');
   await page.locator('#send').click();
   await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.mode)).toBe('plan');
 });
 
 test('attaches editor context as removable chips', async ({page}) => {
-  await page.getByRole('button',{name:'Attach active editor'}).click();
+  await page.getByRole('button',{name:'Attach file or selected code'}).click();
   await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.type)).toBe('attachEditor');
   await host(page, {type:'attachments',items:[{id:'att-1',label:'src/main.ts · selection'}]});
   await expect(page.locator('#attachment-chips button')).toContainText('src/main.ts');
@@ -119,9 +120,8 @@ test('labels tool support and avoids chat-only agent models', async ({page}) => 
 });
 
 test('switches routing tiers by mode and shows the model used', async ({page}) => {
-  await expect(page.locator('#chat-model-picker')).toBeHidden();
-  await expect(page.locator('#code-model-picker')).toBeVisible();
-  await page.locator('#codeModel').selectOption('auto:quality');
+  await page.locator('#routing-trigger').click();
+  await page.getByRole('menuitemradio',{name:/^Auto · Quality/}).click();
   await expect(page.locator('#routeHint')).toContainText('Quality');
   await page.locator('#prompt').fill('Refactor this project');
   await page.locator('#send').click();
@@ -134,9 +134,45 @@ test('switches routing tiers by mode and shows the model used', async ({page}) =
   await host(page, {type:'state',chat:{id:'session-1',transcript:[{role:'user',content:'Refactor this project'},
     {role:'assistant',content:'Done',model:{name:'coder:14b',label:'Auto · Quality',reason:'Uses the largest model'}}]},busy:false});
   await expect(page.locator('#messages .model-pill')).toContainText('coder:14b');
-  await page.getByRole('combobox',{name:'Assistant mode'}).selectOption('chat');
-  await expect(page.locator('#code-model-picker')).toBeHidden();
-  await expect(page.locator('#chat-model-picker')).toBeVisible();
+  await page.locator('#mode-trigger').click();
+  await page.getByRole('menuitemradio',{name:/^Chat/}).click();
+  await expect(page.locator('#mode-trigger')).toContainText('Chat');
+});
+
+test('keeps model options visible but unavailable during auto mode', async ({page}) => {
+  await page.locator('#routing-trigger').click();
+  await page.getByRole('menuitemradio',{name:/^Auto · Balanced/}).click();
+  await page.locator('#model-trigger').click();
+  await expect(page.locator('.popover-filter')).toContainText("Can't pick a model in Auto mode");
+  await expect(page.getByRole('menuitemradio',{name:/local-code/})).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#picker-popover')).not.toHaveClass(/open/);
+  await page.locator('#routing-trigger').click();
+  await page.getByRole('menuitemradio',{name:/^Manual/}).click();
+  await page.locator('#model-trigger').click();
+  await expect(page.locator('.popover-filter')).toHaveCount(0);
+  await page.getByRole('menuitemradio',{name:/local-chat/}).click();
+  await expect(page.locator('#codeModel')).toHaveValue('local-chat');
+});
+
+test('selects project agents separately from Agent mode', async ({page}) => {
+  await host(page, {type:'agents', agents:[{id:'reviewer',name:'Code Reviewer',description:'Find bugs and regressions'}]});
+  await page.locator('#agent-trigger').click();
+  await page.getByRole('menuitemradio',{name:/Code Reviewer/}).click();
+  await expect(page.locator('#agent-trigger')).toContainText('Code Reviewer');
+  await page.locator('#prompt').fill('Review this file');
+  await page.locator('#send').click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.agentId)).toBe('reviewer');
+});
+
+test('centers the welcome content in a wide view and reveals voice smoothly', async ({page}) => {
+  await page.setViewportSize({width:1200,height:800});
+  const welcome = await page.locator('.empty').boundingBox();
+  expect(Math.abs(welcome.x + welcome.width / 2 - 600)).toBeLessThan(10);
+  await page.getByRole('button',{name:'Speak',exact:true}).click();
+  await expect(page.locator('.voice-reveal')).toHaveClass(/open/);
+  await page.getByRole('button',{name:'Type',exact:true}).click();
+  await expect(page.locator('.voice-reveal')).not.toHaveClass(/open/);
 });
 
 test('streams only the active task and keeps agent activity visible', async ({page}) => {

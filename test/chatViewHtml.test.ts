@@ -67,11 +67,14 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /type: 'sendMessage'/);
 	});
 
-	it('offers automatic routing tiers and one model picker per assistant mode', () => {
+	it('offers separate routing, model, and project-agent menus', () => {
 		const html = createChatViewHtml();
-		for (const text of ['auto:balanced', 'auto:fast', 'auto:quality', 'chat-model-picker', 'code-model-picker', 'routeHint'])
+		for (const text of ['auto:balanced', 'auto:fast', 'auto:quality', 'routing-trigger', 'model-trigger',
+			'agent-trigger', 'mode-trigger', 'picker-popover', 'routeHint', "Can't pick a model in Auto mode", 'refreshAgents'])
 			assert.ok(html.includes(text));
 		assert.match(html, /agentModeSelect\.addEventListener\('change'/);
+		assert.match(html, /event\.key === 'Escape'/);
+		assert.match(html, /menuOption\('Manual'/);
 	});
 
 	it('leaves chat history to the extension host so it survives the view being moved', () => {

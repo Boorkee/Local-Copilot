@@ -92,8 +92,36 @@ export function createChatViewHtml(effectsUri?: string): string {
         .composer-slot .composer { margin:0; border-radius:12px; overflow:hidden; }
         textarea { min-height:72px; padding:14px 12px 8px; line-height:1.6; }
         .toolbar { gap:6px; padding:8px; border-top:1px solid var(--vscode-widget-border, transparent); }
-		.pick { flex:1 1 90px; }
-		select { width:100%; max-width:175px; }
+		.composer-controls { display:flex; flex:1 1 auto; min-width:0; align-items:center; flex-wrap:wrap; gap:5px; }
+		.composer-pick { min-width:0; max-width:100%; padding:5px 9px; gap:7px; justify-content:space-between; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--vscode-foreground); font-size:12px; white-space:nowrap; }
+		.composer-pick:hover:not(:disabled), .composer-pick[aria-expanded="true"] { border-color:var(--vscode-widget-border, transparent); background:var(--vscode-toolbar-hoverBackground); }
+		.composer-pick .chevron { font-size:9px; color:var(--vscode-descriptionForeground); transition:transform 180ms ease; }
+		.composer-pick[aria-expanded="true"] .chevron { transform:rotate(180deg); }
+		.composer-pick .pick-value { overflow:hidden; max-width:145px; text-overflow:ellipsis; }
+		.composer-pick .pick-label { font-size:10px; color:var(--vscode-descriptionForeground); }
+		.composer-pick.primary { border-color:var(--vscode-widget-border, transparent); background:var(--vscode-editor-inactiveSelectionBackground); }
+		.composer-pick.routing-auto { color:var(--vscode-textLink-foreground); }
+		.composer-pick.model-auto { color:var(--vscode-descriptionForeground); }
+		#picker-popover { position:fixed; z-index:100; box-sizing:border-box; width:min(340px, calc(100vw - 16px)); max-height:55vh; display:flex; flex-direction:column; padding:8px; overflow:hidden; border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:16px; color:var(--vscode-foreground); background:var(--vscode-editorWidget-background, var(--vscode-dropdown-background)); box-shadow:0 12px 32px rgba(0,0,0,.22); opacity:0; transform:translateY(12px) scale(.97); transform-origin:bottom center; visibility:hidden; pointer-events:none; transition:opacity 220ms ease, transform 260ms cubic-bezier(.2,.8,.2,1), visibility 0s linear 260ms; }
+		#picker-popover.open { opacity:1; transform:translateY(0) scale(1); visibility:visible; pointer-events:auto; transition-delay:0s; }
+		.popover-title { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 9px 10px; font-size:13px; font-weight:600; }
+		.popover-title span:last-child { font-size:10px; font-weight:400; color:var(--vscode-descriptionForeground); }
+		.popover-options { position:relative; min-height:0; overflow-y:auto; overscroll-behavior:contain; border-radius:10px; }
+		.popover-option { box-sizing:border-box; display:flex; align-items:flex-start; gap:8px; width:100%; padding:10px 11px; margin:1px 0; text-align:left; border:1px solid transparent; border-radius:10px; background:transparent; color:var(--vscode-foreground); }
+		.popover-option:hover:not(:disabled), .popover-option:focus-visible { background:var(--vscode-list-hoverBackground); }
+		.popover-option[aria-checked="true"] { background:var(--vscode-list-inactiveSelectionBackground); border-color:var(--vscode-focusBorder); }
+		.popover-option .option-copy { flex:1; min-width:0; }
+		.popover-option strong { display:block; overflow-wrap:anywhere; font-weight:600; font-size:12px; }
+		.popover-option small { display:block; margin-top:3px; color:var(--vscode-descriptionForeground); font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+		.popover-option .check { color:var(--vscode-textLink-foreground); font-size:13px; }
+		.popover-option:disabled { opacity:.5; cursor:default; }
+		.popover-filter { position:absolute; z-index:1; inset:0; display:grid; place-items:center; padding:12px; text-align:center; border-radius:10px; background:var(--vscode-editorWidget-background, var(--vscode-dropdown-background)); background:color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-dropdown-background)) 63%, transparent); backdrop-filter:blur(1.5px); }
+		.popover-filter span { padding:9px 12px; border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:20px; color:var(--vscode-foreground); background:var(--vscode-editorWidget-background, var(--vscode-dropdown-background)); font-size:11px; font-weight:600; }
+		.popover-goo { height:8px; flex:none; width:70px; margin:-8px auto 2px; opacity:.8; transform:scaleX(.3); transition:transform 300ms cubic-bezier(.2,.8,.2,1); }
+		#picker-popover.open .popover-goo { transform:scaleX(1); }
+		.picker-liquid { display:block; width:70px; height:8px; }
+		.picker-blob { display:block; width:68px; height:8px; border-radius:50%; background:var(--vscode-textLink-foreground); }
+		@media (max-width:440px) { .composer-pick { padding:5px 7px; } .composer-pick .pick-label { display:none; } }
 		.route-hint { padding:0 10px 8px; color:var(--vscode-descriptionForeground); font-size:10px; line-height:1.35; }
 		.route-hint:empty { display:none; }
 		.model-pill { display:inline-flex; align-items:center; gap:5px; min-width:0; max-width:100%; padding:3px 8px; border:1px solid var(--vscode-widget-border, transparent); border-radius:20px; background:var(--vscode-input-background); color:var(--vscode-descriptionForeground); font-size:10px; font-weight:400; white-space:nowrap; }
@@ -101,6 +129,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		.model-pill .model-name { display:inline-block; min-width:0; max-width:150px; overflow:hidden; text-overflow:ellipsis; }
 		.model-pill .model-dot { width:5px; height:5px; flex:none; border-radius:50%; background:var(--vscode-textLink-foreground); }
 		.model-pill { animation: model-appear 180ms ease-out both; }
+		.agent-pill { display:inline-flex; align-items:center; max-width:160px; padding:3px 8px; border:1px solid var(--vscode-focusBorder); border-radius:20px; color:var(--vscode-textLink-foreground); font-size:10px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 		@keyframes model-appear { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
 		.message .head { flex-wrap:wrap; }
         button.send { width:30px; height:28px; border-radius:8px; }
@@ -181,9 +210,15 @@ export function createChatViewHtml(effectsUri?: string): string {
 		<textarea id="prompt" rows="1" placeholder="Ask Local Copilot to build, fix, or explain…" aria-label="Message"></textarea>
 			<div id="attachment-chips" class="attachment-chips" aria-label="Attached context"></div>
 		<div class="toolbar">
-	            <label class="pick" title="Agent edits with approval; Plan reads only; Chat answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="plan">Plan</option><option value="chat">Chat</option></select></label>
-			<label class="pick" id="chat-model-picker" title="Choose a model for Chat mode"><span>Model</span><select id="model" aria-label="Chat model"></select></label>
-			<label class="pick" id="code-model-picker" title="Choose a model for Agent and Plan modes"><span>Model</span><select id="codeModel" aria-label="Agent model"></select></label>
+			<select id="agentMode" hidden aria-label="Assistant mode"><option value="agent">Agent</option><option value="plan">Plan</option><option value="chat">Chat</option></select>
+			<select id="model" hidden aria-label="Chat model"></select>
+			<select id="codeModel" hidden aria-label="Agent model"></select>
+			<div class="composer-controls">
+				<button id="mode-trigger" class="composer-pick primary" type="button" aria-haspopup="menu" aria-expanded="false" data-menu="mode"><span class="pick-value">Agent</span><span class="chevron" aria-hidden="true">▾</span></button>
+				<button id="agent-trigger" class="composer-pick" type="button" aria-haspopup="menu" aria-expanded="false" data-menu="agents"><span class="pick-label">Agent</span><span class="pick-value">Built-in agent</span><span class="chevron" aria-hidden="true">▾</span></button>
+				<button id="routing-trigger" class="composer-pick routing-auto" type="button" aria-haspopup="menu" aria-expanded="false" data-menu="routing"><span class="pick-value">Auto · Balanced</span><span class="chevron" aria-hidden="true">▾</span></button>
+				<button id="model-trigger" class="composer-pick model-auto" type="button" aria-haspopup="menu" aria-expanded="false" data-menu="models"><span class="pick-label">Model</span><span class="pick-value">Installed models</span><span class="chevron" aria-hidden="true">▾</span></button>
+			</div>
 			<button id="refresh" class="icon" type="button" data-tooltip="Refresh installed Ollama models" aria-label="Refresh installed models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
 				<button id="attach" class="icon" type="button" data-tooltip="Include the active file or selected code in your next message" aria-label="Attach file or selected code"><svg viewBox="0 0 16 16"><path d="M6.5 13.5a3.5 3.5 0 0 1-3.5-3.5V5.5a2.5 2.5 0 0 1 5 0v4.7a1.5 1.5 0 0 1-3 0V6.5h1.3v3.7a.2.2 0 0 0 .4 0V5.5a1.2 1.2 0 0 0-2.4 0V10a2.2 2.2 0 0 0-4.4 0V5a3.5 3.5 0 1 1 7 0v5.2h-1.3V5a2.2 2.2 0 0 0-4.4 0v5a3.5 3.5 0 0 1-3.5 3.5z"/></svg></button>
 			<span class="spacer"></span>
@@ -191,6 +226,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		</div>
 		<div class="route-hint" id="routeHint" aria-live="polite"></div>
 	</div>
+	<div id="picker-popover" role="menu" aria-label="Choose option"><div class="popover-goo" aria-hidden="true"></div><div class="popover-title"></div><div class="popover-options"></div></div>
 	<div id="effects"></div>
 	<script nonce="${nonce}">
 		const vscode = acquireVsCodeApi();
@@ -203,6 +239,13 @@ export function createChatViewHtml(effectsUri?: string): string {
 		const modelSelect = document.getElementById('model');
 		const codeModelSelect = document.getElementById('codeModel');
 		const agentModeSelect = document.getElementById('agentMode');
+		const pickerPopover = document.getElementById('picker-popover');
+		const pickerTitle = pickerPopover.querySelector('.popover-title');
+		const pickerOptions = pickerPopover.querySelector('.popover-options');
+		let openMenu = '';
+		let openTrigger = null;
+		let projectAgents = [];
+		let projectAgentError = '';
 		const routeHint = document.getElementById('routeHint');
 		const promptInput = document.getElementById('prompt');
 		const statusElement = document.getElementById('status');
@@ -210,6 +253,9 @@ export function createChatViewHtml(effectsUri?: string): string {
 		const sendButton = document.getElementById('send');
 			const attachmentsElement = document.getElementById('attachment-chips');
 		const savedState = vscode.getState() || {};
+		let activeAgentId = typeof savedState.agentId === 'string' ? savedState.agentId : '';
+		let lastManualChat = savedState.manualChatModel || '';
+		let lastManualCode = savedState.manualCodeModel || '';
 		let busy = false;
 		const hoverTip = document.createElement('div');
 		hoverTip.id = 'hover-tip';
@@ -253,17 +299,29 @@ export function createChatViewHtml(effectsUri?: string): string {
 			// The message feed is rendered by React; this only updates composer controls.
 			sendButton.disabled = window.copilot.connection !== 'ready' || Boolean(window.copilot.review) || busy || window.copilot.recording || !promptInput.value.trim();
 			const chatting = agentModeSelect.value === 'chat';
-			document.getElementById('chat-model-picker').hidden = !chatting;
-			document.getElementById('code-model-picker').hidden = chatting;
+			const agentButton = document.getElementById('agent-trigger');
+			agentButton.hidden = agentModeSelect.value !== 'agent';
+			const currentAgent = projectAgents.find(agent => agent.id === activeAgentId);
+			agentButton.querySelector('.pick-value').textContent = currentAgent ? currentAgent.name : 'Built-in agent';
 			const chosen = chatting ? modelSelect.value : codeModelSelect.value;
+			const automatic = chosen.startsWith('auto:');
 			const tier = chosen === 'auto:fast' ? 'Fast' : chosen === 'auto:quality' ? 'Quality' : 'Balanced';
 			routeHint.textContent = chosen.startsWith('auto:')
 				? '✦ Auto · ' + tier + ' — selects an installed local model for each request.'
 				: chosen ? 'Using ' + chosen + ' for ' + (chatting ? 'chat' : agentModeSelect.value) + '.' : '';
+			document.getElementById('mode-trigger').querySelector('.pick-value').textContent = agentModeSelect.value[0].toUpperCase() + agentModeSelect.value.slice(1);
+			const routingButton = document.getElementById('routing-trigger');
+			routingButton.querySelector('.pick-value').textContent = automatic ? 'Auto · ' + tier : 'Manual';
+			routingButton.classList.toggle('routing-auto', automatic);
+			const modelButton = document.getElementById('model-trigger');
+			modelButton.querySelector('.pick-value').textContent = automatic ? 'Installed models' : chosen || 'No models';
+			modelButton.classList.toggle('model-auto', automatic);
+			for (const trigger of document.querySelectorAll('[data-menu]')) trigger.disabled = busy;
 			modelSelect.disabled = busy;
 			codeModelSelect.disabled = busy;
 			agentModeSelect.disabled = busy;
 			document.getElementById('attach').disabled = busy;
+			if (busy) closePicker();
 			updateEffects();
 		}
 
@@ -302,7 +360,122 @@ export function createChatViewHtml(effectsUri?: string): string {
 		}
 
 		function rememberModels() {
-			vscode.setState({ ...vscode.getState(), model: modelSelect.value, codeModel: codeModelSelect.value });
+			if (modelSelect.value && !modelSelect.value.startsWith('auto:')) lastManualChat = modelSelect.value;
+			if (codeModelSelect.value && !codeModelSelect.value.startsWith('auto:')) lastManualCode = codeModelSelect.value;
+			vscode.setState({ ...vscode.getState(), model: modelSelect.value, codeModel: codeModelSelect.value,
+				manualChatModel: lastManualChat, manualCodeModel: lastManualCode });
+		}
+
+		function activeModelSelect() { return agentModeSelect.value === 'chat' ? modelSelect : codeModelSelect; }
+		function closePicker(restoreFocus = false) {
+			if (!openMenu) return;
+			pickerPopover.classList.remove('open');
+			if (openTrigger) openTrigger.setAttribute('aria-expanded', 'false');
+			if (restoreFocus && openTrigger) openTrigger.focus();
+			openMenu = '';
+			openTrigger = null;
+		}
+
+		function menuOption(label, description, checked, action, disabled = false) {
+			const button = document.createElement('button');
+			button.type = 'button';
+			button.className = 'popover-option';
+			button.setAttribute('role', 'menuitemradio');
+			button.setAttribute('aria-checked', String(checked));
+			button.disabled = disabled;
+			const copy = document.createElement('span');
+			copy.className = 'option-copy';
+			const heading = document.createElement('strong');
+			heading.textContent = label;
+			copy.append(heading);
+			if (description) {
+				const sub = document.createElement('small');
+				sub.textContent = description;
+				copy.append(sub);
+			}
+			button.append(copy);
+			if (checked) { const check = document.createElement('span'); check.className = 'check'; check.textContent = '✓'; button.append(check); }
+			button.addEventListener('click', () => { if (disabled) return; action(); closePicker(true); render(); });
+			pickerOptions.append(button);
+		}
+
+		function openPicker(name, trigger) {
+			if (busy) return;
+			if (openMenu === name) { closePicker(true); return; }
+			closePicker();
+			pickerOptions.replaceChildren();
+			pickerOptions.classList.remove('model-options');
+			const selection = activeModelSelect();
+			const auto = selection.value.startsWith('auto:');
+			const caption = document.createElement('span');
+			const secondary = document.createElement('span');
+			pickerTitle.replaceChildren(caption, secondary);
+			if (name === 'mode') {
+				caption.textContent = 'Assistant mode';
+				secondary.textContent = 'How can I help?';
+				for (const [id, label, desc] of [
+					['agent', 'Agent', 'Read, build, and edit with your approval'],
+					['plan', 'Plan', 'Explore and plan without writing files'],
+					['chat', 'Chat', 'Ask questions and explain code']
+				]) menuOption(label, desc, agentModeSelect.value === id, () => {
+					agentModeSelect.value = id;
+					vscode.setState({ ...vscode.getState(), mode: id });
+				});
+			} else if (name === 'agents') {
+				caption.textContent = 'Choose an agent';
+				secondary.textContent = 'Project profiles';
+				menuOption('Built-in agent', 'General-purpose coding with approval before changes', !activeAgentId, () => {
+					activeAgentId = ''; vscode.setState({ ...vscode.getState(), agentId: '' });
+				});
+				for (const agent of projectAgents) menuOption(agent.name, agent.description || agent.id + '.agent.md', activeAgentId === agent.id, () => {
+					activeAgentId = agent.id; vscode.setState({ ...vscode.getState(), agentId: activeAgentId });
+				});
+				if (projectAgentError) menuOption(projectAgentError, '', false, () => {}, true);
+				menuOption('Refresh project agents', 'From .local-copilot/agents/', false, () => vscode.postMessage({ type: 'refreshAgents' }));
+			} else if (name === 'routing') {
+				caption.textContent = 'Model selection';
+				secondary.textContent = 'Auto or Manual';
+				for (const [id, label, desc] of [
+					['auto:balanced', 'Auto · Balanced', 'Choose the best available model for the task'],
+					['auto:fast', 'Auto · Fast', 'Prefer smaller, more responsive models'],
+					['auto:quality', 'Auto · Quality', 'Prefer stronger reasoning and code generation']
+				]) menuOption(label, desc, selection.value === id, () => { selection.value = id; rememberModels(); });
+				const manual = [...selection.options].find(option => !option.disabled && !option.value.startsWith('auto:') && option.value);
+				menuOption('Manual', 'Choose a specific installed model', !auto, () => {
+					const preferred = agentModeSelect.value === 'chat' ? lastManualChat : lastManualCode;
+					const option = [...selection.options].find(option => option.value === preferred && !option.disabled);
+					selection.value = option ? preferred : manual.value;
+					rememberModels();
+				}, !manual);
+			} else if (name === 'models') {
+				caption.textContent = 'Installed models';
+				secondary.textContent = auto ? 'Auto selected' : 'Choose one';
+				const options = [...selection.options].filter(option => option.value && !option.value.startsWith('auto:'));
+				if (!options.length) menuOption('No models installed', 'Refresh Ollama to discover models', false, () => {}, true);
+				for (const option of options) menuOption(option.value, option.textContent.replace(option.value, '').replace(/^ · /, '') || 'Local Ollama model', selection.value === option.value,
+					() => { selection.value = option.value; rememberModels(); }, option.disabled || auto);
+				if (auto) {
+					const filter = document.createElement('div');
+					filter.className = 'popover-filter';
+					filter.setAttribute('aria-label', 'Cannot pick a model in Auto mode');
+					const message = document.createElement('span');
+					message.textContent = "Can't pick a model in Auto mode";
+					filter.append(message);
+					pickerOptions.append(filter);
+				}
+			}
+			openMenu = name;
+			openTrigger = trigger;
+			trigger.setAttribute('aria-expanded', 'true');
+			pickerPopover.setAttribute('aria-label', caption.textContent);
+			const bounds = trigger.getBoundingClientRect();
+			const width = Math.min(340, window.innerWidth - 16);
+			pickerPopover.style.width = width + 'px';
+			pickerPopover.style.left = Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8)) + 'px';
+			pickerPopover.style.bottom = Math.max(0, window.innerHeight - bounds.top + 8) + 'px';
+			pickerPopover.style.maxHeight = Math.max(80, Math.min(window.innerHeight * .55, bounds.top - 16)) + 'px';
+			pickerPopover.classList.add('open');
+			pickerOptions.querySelector('button:not(:disabled)')?.focus();
 		}
 
 		function autosize() {
@@ -316,7 +489,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 			if (window.copilot.recording || window.copilot.review || window.copilot.connection !== 'ready') return;
 			errorElement.textContent = '';
 			busy = true;
-			vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value, prompt, mode: agentModeSelect.value });
+			vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value,
+				prompt, mode: agentModeSelect.value, agentId: agentModeSelect.value === 'agent' && activeAgentId ? activeAgentId : undefined });
 			promptInput.value = '';
 			vscode.setState({ ...vscode.getState(), draft: '' });
 			autosize();
@@ -326,6 +500,34 @@ export function createChatViewHtml(effectsUri?: string): string {
 		sendButton.addEventListener('click', sendMessage);
 		document.getElementById('attach').addEventListener('click', () => vscode.postMessage({ type: 'attachEditor' }));
 		document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refreshModels' }));
+		for (const trigger of document.querySelectorAll('[data-menu]')) {
+			trigger.addEventListener('click', () => openPicker(trigger.dataset.menu, trigger));
+		}
+		document.addEventListener('pointerdown', event => {
+			if (openMenu && !pickerPopover.contains(event.target) && !openTrigger?.contains(event.target)) closePicker();
+		});
+		document.addEventListener('focusin', event => {
+			if (openMenu && !pickerPopover.contains(event.target) && !openTrigger?.contains(event.target)) closePicker();
+		});
+		document.addEventListener('keydown', event => {
+			if (!openMenu) return;
+			if (event.key === 'Escape') { event.preventDefault(); closePicker(true); return; }
+			if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+			const options = [...pickerOptions.querySelectorAll('button:not(:disabled)')];
+			if (!options.length) return;
+			event.preventDefault();
+			const index = options.indexOf(document.activeElement);
+			let target = index;
+			if (event.key === 'Home') target = 0;
+			else if (event.key === 'End') target = options.length - 1;
+			else if (event.key === 'ArrowDown') target = (index + 1) % options.length;
+			else target = (index - 1 + options.length) % options.length;
+			options[target].focus();
+		});
+		window.addEventListener('resize', () => closePicker());
+		window.addEventListener('scroll', event => {
+			if (!pickerOptions.contains(event.target) && event.target !== pickerOptions) closePicker();
+		}, true);
 		modelSelect.addEventListener('change', () => { rememberModels(); render(); });
 		codeModelSelect.addEventListener('change', () => { rememberModels(); render(); });
 		agentModeSelect.addEventListener('change', () => { vscode.setState({ ...vscode.getState(), mode: agentModeSelect.value }); render(); });
@@ -364,11 +566,21 @@ export function createChatViewHtml(effectsUri?: string): string {
                 window.copilot.commandOutput = ((message.reset ? '' : window.copilot.commandOutput) + message.text).slice(-64000);
                 updateEffects();
             } else if (message.type === 'models') {
+				closePicker();
 				fillModelSelect(modelSelect, message.models, message.defaultModel, savedState.model, message.capabilities);
 				fillModelSelect(codeModelSelect, message.models, message.defaultCodeModel, savedState.codeModel, message.capabilities, true);
 				rememberModels();
 				render();
 				if (!message.models.length) setStatus('No models found; pull one with Ollama first.');
+			} else if (message.type === 'agents') {
+				closePicker();
+				projectAgents = Array.isArray(message.agents) ? message.agents : [];
+				projectAgentError = message.error || '';
+				if (activeAgentId && !projectAgents.some(agent => agent.id === activeAgentId)) {
+					activeAgentId = '';
+					vscode.setState({ ...vscode.getState(), agentId: '' });
+				}
+				render();
 			} else if (message.type === 'state') {
                 window.copilot.review = message.review || null;
                 window.copilot.commandOutput = message.commandOutput || '';

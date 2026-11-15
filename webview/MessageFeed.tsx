@@ -63,6 +63,7 @@ function ToolSteps({ steps }: { steps: Step[] }) {
 function Message({ entry, pending, status }: { entry: TranscriptEntry; pending?: boolean; status?: string }) {
     return <article className={`message ${entry.role}`}>
         {entry.role === 'assistant' && <div className="head"><span className="avatar" aria-hidden="true">✦</span>Local Copilot
+            {entry.agent && <span className="agent-pill" title={`Project agent: ${entry.agent.name}`}>◆ {entry.agent.name}</span>}
             {entry.model && <span className="model-pill" title={entry.model.reason}
                 aria-label={`${entry.model.label} selected ${entry.model.name}. ${entry.model.reason}`}>
                 <span className="model-dot" aria-hidden="true"/>

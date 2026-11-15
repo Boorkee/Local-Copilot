@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { createPortal } from 'react-dom';
 import { BorderBeam } from 'border-beam';
 import { ThinkingOrb } from 'thinking-orbs';
 import { Liquid } from 'liquid-gooey';
@@ -14,6 +15,7 @@ declare global {
 }
 const composer = document.querySelector<HTMLElement>('.composer')!;
 const prompt = document.querySelector<HTMLTextAreaElement>('#prompt')!;
+const pickerAccent = document.querySelector<HTMLElement>('.popover-goo')!;
 
 function Effects() {
     const slot = useRef<HTMLDivElement>(null);
@@ -85,6 +87,9 @@ function Effects() {
     }
     const orbState = /load|connect|switch/i.test(status) ? 'connecting' : /code|writ|tool|read/i.test(status) ? 'working' : 'solving';
     return <>
+        {!reduced && visible && createPortal(<Liquid className="picker-liquid" fill="var(--vscode-textLink-foreground)" blur={4} contrast={16} aria-hidden="true">
+            <Liquid.Item effect="move" radius={9}><span className="picker-blob"/></Liquid.Item>
+        </Liquid>, pickerAccent)}
         <MessageFeed />
         <div className="activity" aria-hidden="true">
             {busy ? <><ThinkingOrb state={orbState} size={20} theme={dark ? 'dark' : 'light'} paused={reduced || !visible}/><span>{status || 'Thinking…'}</span></> : <><span className="ready-dot"/><span>{listening ? 'Listening · local dictation' : connection === 'ready' ? 'Ready when you are' : connection === 'loading' ? 'Connecting to Ollama…' : 'Ollama unavailable'}</span></>}
