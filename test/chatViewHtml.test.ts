@@ -102,6 +102,16 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /button\.send \{[^}]*width: 24px; height: 22px/);
 	});
 
+	it('centers wide layouts and includes reduced motion and tactile feedback', () => {
+		const html = createChatViewHtml();
+		assert.match(html, /#messages > \.message \{[^}]*max-width:840px; margin-inline:auto/);
+		assert.match(html, /#effects \{[^}]*max-width:868px; margin-inline:auto/);
+		assert.match(html, /\.voice-reveal\.open/);
+		assert.match(html, /button\.pressed:not\(\.mode\)/);
+		assert.match(html, /setTimeout\(\(\) => showTip\(target\), 750\)/);
+		assert.match(html, /@media \(prefers-reduced-motion:reduce\)/);
+	});
+
 	it('emits a webview script that parses as valid JavaScript', () => {
 		const html = createChatViewHtml();
 		const script = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/)?.[1];

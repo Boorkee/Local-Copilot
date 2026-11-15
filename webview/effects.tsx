@@ -106,14 +106,19 @@ function Effects() {
             </div>
             <span className="mode-caption">{mode === 'type' ? 'Your local workspace' : 'Review, then send'}</span>
         </div>
-        {mode === 'speak' && <div className="voice-panel">
+        <div className={`voice-reveal ${mode === 'speak' ? 'open' : ''}`} aria-hidden={mode !== 'speak'}>
+          <div className="voice-panel">
             <div className="voice-heading"><span>{listening ? 'Microphone on' : starting ? 'Connecting microphone' : 'Voice input'}</span>
                 <button type="button" className="record" disabled={busy} onClick={() => {
                     if (listening || starting) window.copilot.post({ type: 'stopVoice' });
                     else { setVoice('starting'); setHint('Opening your microphone…'); window.copilot.post({ type: 'startVoice' }); }
                 }}>{listening || starting ? 'Stop' : 'Start listening'}</button></div>
             <p role={voice === 'error' ? 'alert' : 'status'}>{hint}</p>
-        </div>}
+            {mode === 'speak' && !reduced && visible && <Liquid className="voice-goo" fill="var(--vscode-textLink-foreground)" blur={4} contrast={13} aria-hidden="true">
+                <Liquid.Item effect="move" radius={12}><span className="voice-goo-blob"/></Liquid.Item>
+            </Liquid>}
+          </div>
+        </div>
         {output && <details className="command-output"><summary>Command output</summary><pre>{output}</pre></details>}
         {review && <section className="review-panel" aria-label="Agent approval" role="region" key={review.id}>
             <div className="review-title"><strong>{review.kind === 'command' ? 'Run command?' : review.kind === 'delete' ? 'Delete file?' : 'Review file change'}</strong>

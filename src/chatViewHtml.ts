@@ -65,16 +65,18 @@ export function createChatViewHtml(effectsUri?: string): string {
         .brand div > span { display:block; margin-top:3px; font-size:8px; letter-spacing:1.6px; color:var(--vscode-descriptionForeground); }
         .local-badge { margin-left:auto; padding:3px 6px; border:1px solid var(--vscode-widget-border, transparent); border-radius:5px; font-size:8px; letter-spacing:1px; color:var(--vscode-descriptionForeground); }
         #messages { padding:22px 16px; gap:22px; }
+        #messages > .message { box-sizing:border-box; width:100%; max-width:840px; margin-inline:auto; }
         .message.user { padding:12px 14px; border-radius:12px; }
         .message .head { margin-bottom:9px; gap:8px; }
-        .empty { margin:clamp(16px, 8vh, 90px) 0 auto; padding:12px 0; max-width:340px; text-align:left; }
+        .empty { box-sizing:border-box; width:100%; margin:clamp(16px, 8vh, 90px) auto auto; padding:12px 0; max-width:340px; text-align:left; }
         .empty > svg { width:32px; height:32px; color:var(--vscode-textLink-foreground); margin-bottom:18px; }
         .empty .title { font-size:20px; letter-spacing:-0.5px; }
         .empty p { font-size:12px; line-height:1.7; margin-top:9px; }
         .suggestions { display:flex; flex-direction:column; gap:8px; margin-top:24px; }
         .suggestions button { text-align:left; justify-content:flex-start; padding:10px 12px; border:1px solid var(--vscode-widget-border, var(--vscode-input-border, transparent)); border-radius:8px; background:var(--vscode-input-background); color:var(--vscode-foreground); font-size:11px; }
         .suggestions button:hover { border-color:var(--vscode-focusBorder); }
-        #effects { flex:0 1 auto; min-height:0; max-height:75%; overflow-y:auto; overflow-x:hidden; padding:6px 14px 14px; }
+        #effects { box-sizing:border-box; width:100%; max-width:868px; margin-inline:auto; flex:0 1 auto; min-height:0; max-height:75%; overflow-y:auto; overflow-x:hidden; padding:6px 14px 14px; }
+        #error { box-sizing:border-box; width:100%; max-width:868px; margin-inline:auto; }
         .activity { display:flex; align-items:center; gap:8px; min-height:28px; margin:0 4px 8px; color:var(--vscode-descriptionForeground); font-size:11px; }
         .activity span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
         .ready-dot { width:6px; height:6px; border-radius:50%; background:var(--vscode-textLink-foreground); }
@@ -103,7 +105,19 @@ export function createChatViewHtml(effectsUri?: string): string {
 		.message .head { flex-wrap:wrap; }
         button.send { width:30px; height:28px; border-radius:8px; }
         button.icon { width:28px; height:28px; }
-        .voice-panel { padding:12px; margin-bottom:12px; border:1px solid var(--vscode-widget-border, transparent); border-radius:10px; background:var(--vscode-input-background); }
+        .voice-panel { position:relative; padding:12px; margin-bottom:12px; border:1px solid var(--vscode-widget-border, transparent); border-radius:10px; background:var(--vscode-input-background); }
+        .voice-reveal { display:grid; grid-template-rows:0fr; opacity:0; transform:translateY(14px) scale(.985); transform-origin:center bottom; transition:grid-template-rows 280ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease, transform 280ms cubic-bezier(.2,.8,.2,1), visibility 0s linear 280ms; pointer-events:none; visibility:hidden; }
+        .voice-reveal.open { grid-template-rows:1fr; opacity:1; transform:translateY(0) scale(1); pointer-events:auto; visibility:visible; transition-delay:0s; }
+        .voice-reveal > .voice-panel { min-height:0; overflow:hidden; margin-bottom:0; padding-block:0; border-width:0; transition:padding 280ms cubic-bezier(.2,.8,.2,1), margin 280ms; }
+        .voice-reveal.open > .voice-panel { margin-bottom:12px; padding-block:12px; border-width:1px; }
+        .voice-goo { position:absolute; bottom:0; left:50%; width:60px; height:16px; transform:translateX(-50%); pointer-events:none; opacity:.7; }
+        .voice-goo-blob { display:block; width:48px; height:8px; border-radius:50%; background:var(--vscode-textLink-foreground); }
+        @keyframes panel-enter { from { opacity:0; transform:translateY(9px) scale(.99); } to { opacity:1; transform:translateY(0) scale(1); } }
+        .connection-panel, .review-panel { animation:panel-enter 240ms cubic-bezier(.2,.8,.2,1) both; }
+        button:not(.mode) { transition:transform 135ms cubic-bezier(.2,.8,.2,1), background-color 160ms ease, border-color 160ms ease; }
+        button:not(.mode):active:not(:disabled), button.pressed:not(.mode):not(:disabled) { transform:translateY(1px) scale(.965); }
+        #hover-tip { position:fixed; z-index:50; max-width:260px; padding:6px 9px; border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:8px; background:var(--vscode-editorWidget-background, var(--vscode-dropdown-background)); color:var(--vscode-editorWidget-foreground, var(--vscode-foreground)); font-size:11px; box-shadow:0 6px 20px rgba(0,0,0,.18); opacity:0; transform:translateY(4px); transition:opacity 130ms ease, transform 130ms ease; pointer-events:none; }
+        #hover-tip.visible { opacity:1; transform:translateY(0); }
         .voice-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:600; }
         .record { border:1px solid var(--vscode-focusBorder); border-radius:6px; padding:5px 8px; background:transparent; color:var(--vscode-textLink-foreground); font-size:11px; }
         .voice-panel p { font-size:11px; color:var(--vscode-descriptionForeground); margin:8px 0 0; }
@@ -170,8 +184,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 	            <label class="pick" title="Agent edits with approval; Plan reads only; Chat answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="plan">Plan</option><option value="chat">Chat</option></select></label>
 			<label class="pick" id="chat-model-picker" title="Choose a model for Chat mode"><span>Model</span><select id="model" aria-label="Chat model"></select></label>
 			<label class="pick" id="code-model-picker" title="Choose a model for Agent and Plan modes"><span>Model</span><select id="codeModel" aria-label="Agent model"></select></label>
-			<button id="refresh" class="icon" type="button" title="Refresh models" aria-label="Refresh models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
-				<button id="attach" class="icon" type="button" title="Attach active editor or selection" aria-label="Attach active editor"><svg viewBox="0 0 16 16"><path d="M6.5 13.5a3.5 3.5 0 0 1-3.5-3.5V5.5a2.5 2.5 0 0 1 5 0v4.7a1.5 1.5 0 0 1-3 0V6.5h1.3v3.7a.2.2 0 0 0 .4 0V5.5a1.2 1.2 0 0 0-2.4 0V10a2.2 2.2 0 0 0 4.4 0V5a3.5 3.5 0 1 1 7 0v5.2h-1.3V5a2.2 2.2 0 0 0-4.4 0v5a3.5 3.5 0 0 1-3.5 3.5z"/></svg></button>
+			<button id="refresh" class="icon" type="button" data-tooltip="Refresh installed Ollama models" aria-label="Refresh installed models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
+				<button id="attach" class="icon" type="button" data-tooltip="Include the active file or selected code in your next message" aria-label="Attach file or selected code"><svg viewBox="0 0 16 16"><path d="M6.5 13.5a3.5 3.5 0 0 1-3.5-3.5V5.5a2.5 2.5 0 0 1 5 0v4.7a1.5 1.5 0 0 1-3 0V6.5h1.3v3.7a.2.2 0 0 0 .4 0V5.5a1.2 1.2 0 0 0-2.4 0V10a2.2 2.2 0 0 0-4.4 0V5a3.5 3.5 0 1 1 7 0v5.2h-1.3V5a2.2 2.2 0 0 0-4.4 0v5a3.5 3.5 0 0 1-3.5 3.5z"/></svg></button>
 			<span class="spacer"></span>
 			<button id="send" class="send" type="button" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2z"/></svg></button>
 		</div>
@@ -197,6 +211,43 @@ export function createChatViewHtml(effectsUri?: string): string {
 			const attachmentsElement = document.getElementById('attachment-chips');
 		const savedState = vscode.getState() || {};
 		let busy = false;
+		const hoverTip = document.createElement('div');
+		hoverTip.id = 'hover-tip';
+		hoverTip.setAttribute('role', 'tooltip');
+		document.body.append(hoverTip);
+		let hoverTimer;
+		let hoverTarget;
+		function hideTip() { clearTimeout(hoverTimer); hoverTarget = undefined; hoverTip.classList.remove('visible'); }
+		function showTip(button) {
+			if (!button || button.disabled) return;
+			hoverTip.textContent = button.dataset.tooltip;
+			const rect = button.getBoundingClientRect();
+			const width = Math.min(280, Math.max(130, hoverTip.textContent.length * 5.9));
+			hoverTip.style.width = width + 'px';
+			hoverTip.style.left = Math.max(8, Math.min(window.innerWidth - width - 24, rect.left + rect.width / 2 - width / 2)) + 'px';
+			hoverTip.style.top = Math.max(8, rect.top - hoverTip.offsetHeight - 10) + 'px';
+			hoverTip.classList.add('visible');
+		}
+		document.addEventListener('pointerover', event => {
+			const target = event.target instanceof Element ? event.target.closest('[data-tooltip]') : null;
+			if (!target || target === hoverTarget) return;
+			hideTip(); hoverTarget = target;
+			hoverTimer = setTimeout(() => showTip(target), 750);
+		});
+		document.addEventListener('pointerout', event => {
+			if (hoverTarget && (!event.relatedTarget || !hoverTarget.contains(event.relatedTarget))) hideTip();
+		});
+		document.addEventListener('focusin', event => {
+			const target = event.target instanceof Element ? event.target.closest('[data-tooltip]') : null;
+			if (target) { hideTip(); hoverTarget = target; showTip(target); }
+		});
+		document.addEventListener('focusout', hideTip);
+		document.addEventListener('click', event => {
+			const button = event.target instanceof Element ? event.target.closest('button') : null;
+			if (!button || button.disabled) return;
+			button.classList.add('pressed');
+			setTimeout(() => button.classList.remove('pressed'), 130);
+		}, true);
 
 		function render() {
 			// The message feed is rendered by React; this only updates composer controls.
