@@ -10,7 +10,7 @@ import { Chat, ChatStore, TranscriptEntry } from './chatStore';
 import { replaceEditorText } from './editorActions';
 import { delegateCodingTask } from './orchestrator';
 import { ChatMessage, OllamaClient } from './ollamaClient';
-import { OpenDocuments, WorkspaceTools, WriteProposal } from './workspaceTools';
+import { OpenDocuments, READ_ONLY_TOOLS, WorkspaceTools, WriteProposal } from './workspaceTools';
 import { HostEvent, parseWebviewMessage, WebviewMessage } from './protocol';
 
 function samePath(a: string, b: string): boolean {
@@ -315,6 +315,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
                     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
                     const agentMode = message.mode !== 'chat';
+                    const planMode = message.mode === 'plan';
                     if (agentMode && (!root || !vscode.workspace.isTrusted)) {
                         throw new Error('Open and trust a workspace folder to use Agent mode, or select Chat for conversation only.');
                     }
@@ -323,11 +324,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (agentMode && this.client.cachedCapability(model) === 'chat')
                         throw new Error(`${model} does not advertise Ollama tool support. Choose a tool-capable model for Agent or switch to Chat mode.`);
                     await this.runTurn(prompt, async chat => {
-                        const tools = agentMode ? this.createTools(root!) : undefined;
+                        const tools = agentMode ? this.createTools(root!, planMode) : undefined;
                         let content: string;
                         try {
                             content = tools
                                 ? (await runAgent({ client: this.client, model, task: prompt, history: chat.history.slice(-20), tools,
+                                    mode: planMode ? 'plan' : 'act',
                                     signal: this.taskController!.signal, onProgress: text => this.setStatus(text),
                                     onDelta: text => this.addDelta(chat.id, this.taskId!, text),
                                     onToolActivity: (stepId, tool, status) => this.recordTool(chat.id, this.taskId!, stepId, tool, status) })).summary
@@ -397,7 +399,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         if (this.busy) this.client.cancelRequests();
     }
 
-    private createTools(root: string): WorkspaceTools {
+    private createTools(root: string, readOnly = false): WorkspaceTools {
         const signal = this.taskController?.signal;
         const assertActive = () => {
             signal?.throwIfAborted();
@@ -405,6 +407,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         };
         return new WorkspaceTools(root, {
             assertActive,
+            allowedTools: readOnly ? READ_ONLY_TOOLS : undefined,
             openDocuments: unsavedDocuments,
             confirmWrite: proposal => this.reviewWrite(proposal),
             confirmDelete: (file, before) => this.requestFileReview('delete', file, before ?? '', ''),

@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileReview, ReviewQueue } from '../src/reviewQueue';
-import { WorkspaceTools } from '../src/workspaceTools';
+import { READ_ONLY_TOOLS, WorkspaceTools } from '../src/workspaceTools';
 import { runAgent } from '../src/agent';
 
 describe('inline reviews', () => {
@@ -82,5 +82,30 @@ describe('inline reviews', () => {
         const confined = new WorkspaceTools(os.tmpdir(), { runCommand: async () => { executed = true; return 'ok'; } });
         assert.match(await confined.execute('run_command', {command:'echo bad', cwd:'..'}), /outside the workspace/);
         assert.equal(executed, false);
+    });
+    it('enforces read-only Plan mode even if the model invents a write tool', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lc-plan-'));
+        try {
+            let attemptedCommand = false;
+            const tools = new WorkspaceTools(root, { allowedTools: READ_ONLY_TOOLS,
+                runCommand: async () => { attemptedCommand = true; return 'unexpected'; } });
+            let count = 0;
+            const result = await runAgent({ model: 'code', task: 'plan a module', tools, mode: 'plan',
+                client: { complete: async (_model, messages, definitions) => {
+                    assert.equal(definitions?.some(definition => definition.function.name === 'write_file'), false);
+                    assert.equal(definitions?.some(definition => definition.function.name === 'run_command'), false);
+                    assert.equal(definitions?.some(definition => definition.function.name === 'search_workspace'), true);
+                    if (count++ === 0) return { role: 'assistant', content: '', tool_calls: [
+                        { function: { name: 'write_file', arguments: { path: 'bad.txt', content: 'bad' } } },
+                        { function: { name: 'run_command', arguments: { command: 'touch bad.txt' } } }
+                    ] };
+                    assert.match(messages.at(-1)!.content, /not permitted in read-only Plan mode/);
+                    return { role: 'assistant', content: 'Here is a read-only plan.' };
+                } }
+            });
+            assert.equal(result.completed, true);
+            assert.equal(attemptedCommand, false);
+            await assert.rejects(fs.stat(path.join(root, 'bad.txt')));
+        } finally { await fs.rm(root, { recursive: true, force: true }); }
     });
 });

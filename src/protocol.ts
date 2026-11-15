@@ -11,7 +11,7 @@ export type WebviewMessage =
     | { type: 'openLocation'; path: string; line?: number }
     | { type: 'openExternal'; url: string }
     | { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
-    | { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; mode?: 'agent' | 'chat' }
+    | { type: 'sendMessage'; model: string; codeModel?: string; prompt: string; mode?: 'agent' | 'chat' | 'plan' }
     | { type: 'applyCode' | 'copyCode'; code: string };
 
 export type TaskStatus = 'done' | 'failed' | 'cancelled';
@@ -72,9 +72,9 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
         case 'sendMessage':
             if (!string(value.model, 256) || !string(value.prompt, 50_000) ||
                 (value.codeModel !== undefined && !string(value.codeModel, 256)) ||
-                (value.mode !== undefined && value.mode !== 'chat' && value.mode !== 'agent')) return;
+                (value.mode !== undefined && value.mode !== 'chat' && value.mode !== 'agent' && value.mode !== 'plan')) return;
             return { type: value.type, model: value.model, codeModel: value.codeModel as string | undefined,
-                prompt: value.prompt, mode: value.mode as 'agent' | 'chat' | undefined };
+                prompt: value.prompt, mode: value.mode as 'agent' | 'chat' | 'plan' | undefined };
         case 'applyCode': case 'copyCode':
             if (string(value.code, 200_000)) return { type: value.type, code: value.code };
             return;

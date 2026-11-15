@@ -94,6 +94,13 @@ test('selects an installed model when the configured default is missing', async 
   await expect(page.locator('#codeModel')).toHaveValue('installed:latest');
 });
 
+test('offers a read-only planning mode', async ({page}) => {
+  await page.getByRole('combobox',{name:'Assistant mode'}).selectOption('plan');
+  await page.locator('#prompt').fill('Plan these changes');
+  await page.locator('#send').click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1)?.mode)).toBe('plan');
+});
+
 test('labels tool support and avoids chat-only agent models', async ({page}) => {
   await host(page, {type:'models', models:['chat:7b','agent:7b'], defaultModel:'chat:7b', defaultCodeModel:'chat:7b',
     capabilities:{'chat:7b':'chat','agent:7b':'tools'}});

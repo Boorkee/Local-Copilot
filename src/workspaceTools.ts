@@ -31,6 +31,7 @@ export type WorkspaceToolsOptions = {
     runCommand?: (command: string, cwd: string) => Promise<string>;
     editorAction?: (action: string, absolute?: string) => Promise<string>;
     assertActive?: () => void;
+    allowedTools?: ReadonlySet<string>;
 };
 
 const MAX_READ_BYTES = 200_000;
@@ -103,6 +104,11 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
 	}
 ];
 
+export const READ_ONLY_TOOLS = new Set([
+    'editor_context', 'get_diagnostics', 'get_workspace_diagnostics', 'list_symbols', 'open_file',
+    'list_files', 'read_file', 'read_file_range', 'search_workspace', 'get_git_diff'
+]);
+
 function isInside(root: string, target: string): boolean {
 	const relative = path.relative(root, target);
 	return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
@@ -126,6 +132,8 @@ export class WorkspaceTools {
 	async execute(name: string, rawArguments: Record<string, unknown> | string): Promise<string> {
 		try {
             this.options.assertActive?.();
+            if (this.options.allowedTools && !this.options.allowedTools.has(name))
+                throw new Error(`${name} is not permitted in read-only Plan mode.`);
 			const args = typeof rawArguments === 'string'
 				? (JSON.parse(rawArguments || '{}') as Record<string, unknown>)
 				: rawArguments ?? {};

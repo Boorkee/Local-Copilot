@@ -12,6 +12,8 @@ describe('typed webview protocol', () => {
             { type: 'reviewDecision', id: 'review-1', approved: false });
         assert.deepEqual(parseWebviewMessage({ type: 'openLocation', path: 'src/app.ts', line: 42 }),
             { type: 'openLocation', path: 'src/app.ts', line: 42 });
+        assert.deepEqual(parseWebviewMessage({ type: 'sendMessage', model: 'coder', codeModel: 'coder', prompt: 'plan', mode: 'plan' }),
+            { type: 'sendMessage', model: 'coder', codeModel: 'coder', prompt: 'plan', mode: 'plan' });
     });
 
     it('rejects invalid messages and forged review actions', () => {

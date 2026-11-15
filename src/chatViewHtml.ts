@@ -153,7 +153,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 	<div class="composer">
 		<textarea id="prompt" rows="1" placeholder="Ask Local Copilot to build, fix, or explain…" aria-label="Message"></textarea>
 		<div class="toolbar">
-            <label class="pick" title="Agent can use tools; Chat only answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="chat">Chat</option></select></label>
+	            <label class="pick" title="Agent edits with approval; Plan reads only; Chat answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="plan">Plan</option><option value="chat">Chat</option></select></label>
 			<label class="pick" title="Chat model"><span>Chat</span><select id="model" aria-label="Chat model"></select></label>
 			<label class="pick" title="Code model used in Agent mode"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
 			<button id="refresh" class="icon" type="button" title="Refresh models" aria-label="Refresh models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
@@ -222,7 +222,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 			if (window.copilot.recording || window.copilot.review || window.copilot.connection !== 'ready') return;
 			errorElement.textContent = '';
 			busy = true;
-			const delegation = prompt.startsWith('/code') && (prompt.length === 5 || prompt[5].trim() === '');
+			const delegation = document.getElementById('agentMode').value !== 'plan' &&
+				prompt.startsWith('/code') && (prompt.length === 5 || prompt[5].trim() === '');
 			if (delegation) {
 				vscode.postMessage({
 					type: 'delegate',
