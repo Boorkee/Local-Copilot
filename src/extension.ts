@@ -407,14 +407,23 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                         let usedModel = { name: choice.model, label: choice.label, reason: choice.reason };
                         try {
                             const response = await runWithModelFallback(choice, signal, async (selectedModel, markStarted) => {
+                                let generating = false;
+                                const onDelta = (text: string) => {
+                                    markStarted();
+                                    if (!generating) {
+                                        this.setStatus(`Responding with ${selectedModel}…`);
+                                        generating = true;
+                                    }
+                                    this.addDelta(chat.id, taskId, text);
+                                };
                                 return tools
                                     ? (await runAgent({ client, model: selectedModel, task: effectivePrompt, history: chat.history.slice(-20), tools,
                                         mode: planMode ? 'plan' : 'act', signal,
                                         onProgress: text => this.setStatus(text),
-                                        onDelta: text => { markStarted(); this.addDelta(chat.id, taskId, text); },
+                                        onDelta,
                                         onToolActivity: (stepId, tool, status) => { markStarted(); this.recordTool(chat.id, taskId, stepId, tool, status); } })).summary
                                     : await client.chat(selectedModel, effectivePrompt, [...chat.history],
-                                        { signal, onDelta: text => { markStarted(); this.addDelta(chat.id, taskId, text); } });
+                                        { signal, onDelta });
                             }, (name, reason) => {
                                 usedModel = { name, label: choice.label, reason };
                                 this.setStatus(`Loading ${name}…`);

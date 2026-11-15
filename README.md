@@ -32,6 +32,8 @@ When a request starts, a badge in the assistant header shows **which model was a
 
 Automatic switching follows Ollama's existing model memory policy. `automatic` lets Ollama schedule resident models, while `conserve` and `keep` are explicit opt-ins described below. You can see the loaded models with `ollama ps`. If larger models exceed your RAM/VRAM, choose Fast or select a smaller model manually.
 
+The [routing design and verification notes](docs/model-routing.md) cover the Copilot/Aider/Continue research, algorithm, trade-offs and test matrix.
+
 ## Tests and CI
 
 Run `npm test` to compile the extension and execute the unit tests. These cover streamed responses, partial tool calls, model residency, chat recovery, protocol validation, bounded workspace context, edit approvals, and other existing features. Run `npm run test:webview` after installing Playwright Chromium to check the UI, Markdown and accessibility-sensitive interactions.

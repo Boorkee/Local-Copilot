@@ -5,6 +5,10 @@
   "version": "0.2.0",
   "publisher": "local-copilot",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Boorkee/Local-Copilot.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },

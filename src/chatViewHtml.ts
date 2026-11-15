@@ -98,6 +98,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 		.model-pill strong { font-weight:600; color:var(--vscode-foreground); }
 		.model-pill .model-name { display:inline-block; min-width:0; max-width:150px; overflow:hidden; text-overflow:ellipsis; }
 		.model-pill .model-dot { width:5px; height:5px; flex:none; border-radius:50%; background:var(--vscode-textLink-foreground); }
+		.model-pill { animation: model-appear 180ms ease-out both; }
+		@keyframes model-appear { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
 		.message .head { flex-wrap:wrap; }
         button.send { width:30px; height:28px; border-radius:8px; }
         button.icon { width:28px; height:28px; }
@@ -224,7 +226,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 			select.replaceChildren();
 			const automatic = document.createElement('optgroup');
 			automatic.label = 'Automatic routing';
-			for (const [name, label] of [['auto:balanced', '✦ Auto · Balanced'], ['auto:fast', '⚡ Auto · Fast'], ['auto:quality', '◆ Auto · Quality']]) {
+			const tiers = [['auto:balanced', '✦ Auto · Balanced'], ['auto:fast', '⚡ Auto · Fast'], ['auto:quality', '◆ Auto · Quality']];
+			for (const [name, label] of tiers) {
 				const option = document.createElement('option');
 				option.value = name;
 				option.textContent = label;
@@ -242,7 +245,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 			}
 			select.append(manual);
 			const available = models.filter(name => capabilities[name] !== 'unsupported' && (!requiresTools || capabilities[name] !== 'chat'));
-			const valid = value => value.startsWith('auto:') && ['auto:balanced', 'auto:fast', 'auto:quality'].includes(value) || available.includes(value);
+			const valid = value => tiers.some(([name]) => value === name) || available.includes(value);
 			select.value = valid(selected) ? selected : valid(defaultModel) ? defaultModel : 'auto:balanced';
 			select.title = requiresTools ? 'Auto selects verified tool-capable models; manual models require tool support' : 'Auto selects a local model for each request';
 		}
