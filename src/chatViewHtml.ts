@@ -133,7 +133,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		<div class="toolbar">
             <label class="pick" title="Agent can use tools; Chat only answers questions"><select id="agentMode" aria-label="Assistant mode"><option value="agent">Agent</option><option value="chat">Chat</option></select></label>
 			<label class="pick" title="Chat model"><span>Chat</span><select id="model" aria-label="Chat model"></select></label>
-			<label class="pick" title="Code model (used by /code and automatic delegation)"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
+			<label class="pick" title="Code model used in Agent mode"><span>Code</span><select id="codeModel" aria-label="Code model"></select></label>
 			<button id="refresh" class="icon" type="button" title="Refresh models" aria-label="Refresh models"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 1 0 4.9 6h-1.5A3.5 3.5 0 1 1 8 4.5c.9 0 1.7.4 2.3 1L8.5 7.3H13V2.8l-1.7 1.7A5 5 0 0 0 8 3z"/></svg></button>
 			<span class="spacer"></span>
 			<button id="send" class="send" type="button" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2z"/></svg></button>
@@ -345,13 +345,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 				option.textContent = name;
 				select.append(option);
 			}
-			if (!models.includes(defaultModel)) {
-				const option = document.createElement('option');
-				option.value = defaultModel;
-				option.textContent = defaultModel + ' (configured)';
-				select.append(option);
-			}
-			select.value = models.includes(selected) || selected === defaultModel ? selected : defaultModel;
+			select.value = models.includes(selected) ? selected : models.includes(defaultModel) ? defaultModel : models[0] || '';
 		}
 
 		function rememberModels() {

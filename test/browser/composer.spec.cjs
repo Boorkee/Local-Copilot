@@ -85,3 +85,9 @@ test('connection errors disable sending and offer retry without dropping a draft
   await expect(page.locator('#send')).toBeEnabled();
   await expect(page.locator('#prompt')).toHaveValue('Keep my draft');
 });
+
+test('selects an installed model when the configured default is missing', async ({page}) => {
+  await host(page, {type:'models',models:['installed:latest'],defaultModel:'missing:chat',defaultCodeModel:'missing:code'});
+  await expect(page.locator('#model')).toHaveValue('installed:latest');
+  await expect(page.locator('#codeModel')).toHaveValue('installed:latest');
+});
