@@ -272,6 +272,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		let activeAgentId = typeof savedState.agentId === 'string' ? savedState.agentId : '';
 		let lastManualChat = savedState.manualChatModel || '';
 		let lastManualCode = savedState.manualCodeModel || '';
+		let activeChatId = '';
 		let busy = false;
 		const hoverTip = document.createElement('div');
 		hoverTip.id = 'hover-tip';
@@ -603,9 +604,10 @@ export function createChatViewHtml(effectsUri?: string): string {
 				}
 				render();
 			} else if (message.type === 'taskFinished') {
-				announcements.textContent = message.status === 'done' ? 'Response complete. Review it in the conversation.'
-					: message.status === 'cancelled' ? 'Task stopped.' : 'Task failed.';
+				if (message.sessionId === activeChatId) announcements.textContent = message.status === 'done'
+					? 'Response complete. Review it in the conversation.' : message.status === 'cancelled' ? 'Task stopped.' : 'Task failed.';
 			} else if (message.type === 'state') {
+                activeChatId = message.chat.id;
                 window.copilot.review = message.review || null;
                 window.copilot.commandOutput = message.commandOutput || '';
 				busy = Boolean(message.busy);

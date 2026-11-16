@@ -86,6 +86,7 @@ describe('createChatViewHtml', () => {
 		assert.doesNotMatch(html, /id="messages" aria-live=/);
 		assert.match(html, /id="announcements"[^>]*aria-live="polite"/);
 		assert.match(html, /message\.type === 'taskFinished'/);
+		assert.match(html, /message\.sessionId === activeChatId/);
 	});
 
 	it('leaves chat history to the extension host so it survives the view being moved', () => {
