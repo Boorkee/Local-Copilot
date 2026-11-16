@@ -53,6 +53,28 @@ describe('runAgent', () => {
 			await fs.rm(root, { recursive: true, force: true });
 		}
 	});
+
+	it('bounds large tool observations before sending them back to the model', async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lc-agent-'));
+		try {
+			await fs.writeFile(path.join(root, 'large.txt'), 'head' + 'a'.repeat(28_000) + 'tail');
+			const observations: string[] = [];
+			let calls = 0;
+			const client = { complete: async (_model: string, messages: OllamaMessage[]) => {
+				if (calls++ === 0) return toolCall('read_file', { path: 'large.txt' });
+				observations.push(messages[messages.length - 1].content);
+				return { role: 'assistant' as const, content: 'Finished.' };
+			} };
+			const result = await runAgent({ client, model: 'code', task: 'inspect file', tools: new WorkspaceTools(root) });
+			assert.equal(result.summary, 'Finished.');
+			assert.ok(observations[0].length < 25_000);
+			assert.match(observations[0], /^head/);
+			assert.match(observations[0], /tail$/);
+			assert.match(observations[0], /output abbreviated/);
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
 });
 
 describe('delegateCodingTask (chat -> code -> chat handoff)', () => {

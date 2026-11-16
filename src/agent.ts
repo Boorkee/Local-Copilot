@@ -40,6 +40,15 @@ const PLAN_PROMPT = [
     'No plan is automatically executed; the user must explicitly choose Agent to make changes.'
 ].join(' ');
 
+const MAX_TOOL_OBSERVATION = 24_000;
+
+function boundedObservation(result: string): string {
+    if (result.length <= MAX_TOOL_OBSERVATION) return result;
+    const half = MAX_TOOL_OBSERVATION / 2;
+    return result.slice(0, half) + '\n[… output abbreviated; request a smaller file range or narrower command …]\n'
+        + result.slice(-half);
+}
+
 export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 	const maxSteps = options.maxSteps ?? 25;
 	const messages: OllamaMessage[] = [
@@ -74,7 +83,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
                 options.onToolActivity?.(stepId, call.function.name, 'failed');
                 throw error;
             }
-			messages.push({ role: 'tool', content: result, tool_name: call.function.name });
+			messages.push({ role: 'tool', content: boundedObservation(result), tool_name: call.function.name });
 		}
 	}
 

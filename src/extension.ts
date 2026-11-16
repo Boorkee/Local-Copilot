@@ -295,8 +295,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		this.flushDelta(chat.id, taskId);
 		this.store.finishTask(chat.id, taskId);
 		const cancelled = this.taskController.signal.aborted;
-		if (cancelled) {
-            const note = 'Task cancelled. Any previously approved file changes or command side effects may remain.';
+		if (cancelled || failure !== undefined) {
+            // Retain interrupted work and tool activity so the user can inspect or retry the turn.
+            const note = cancelled ? 'Task cancelled. Any previously approved file changes or command side effects may remain.'
+                : `Task failed: ${failure}`;
             this.store.appendTurn(chat.id, [
                 { role: 'user', content: prompt },
                 { role: 'assistant', content: note, steps: this.taskSteps.length ? this.taskSteps.map(step => ({ ...step })) : undefined }
@@ -618,7 +620,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                 await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
                     while (next < names.length && !signal.aborted) {
                         const name = names[next++];
-                        capabilities[name] = await client.inspectModel(name, signal).catch(() => 'unknown' as const);
+                        // A single unresponsive model must not starve the rest of the local catalog.
+                        const modelSignal = AbortSignal.any([signal, AbortSignal.timeout(3000)]);
+                        capabilities[name] = await client.inspectModel(name, modelSignal).catch(() => 'unknown' as const);
                     }
                 }));
                 if (refresh !== this.modelRefresh || client !== this.client) return;
