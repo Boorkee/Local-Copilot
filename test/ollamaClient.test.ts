@@ -261,6 +261,13 @@ describe('OllamaClient request failures', () => {
 
 		await assert.rejects(client.listModels(), /timed out after 5 ms/);
 	});
+
+	it('explains when model discovery hits its shorter deadline', async () => {
+		const { client } = createClient(request => new Promise<Response>((_resolve, reject) => {
+			request.init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+		}), 1000);
+		await assert.rejects(client.listModels(AbortSignal.timeout(10)), /timed out while contacting the local server/);
+	});
 });
 
 it('explains connection failures with the configured server and recovery steps', async () => {

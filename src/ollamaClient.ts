@@ -275,7 +275,9 @@ export class OllamaClient {
             return value;
 		} catch (error) {
 			if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
-				throw new Error(timedOut ? `Ollama request timed out after ${this.timeoutMs} ms.` : 'Ollama request cancelled.');
+				throw new Error(timedOut ? `Ollama request timed out after ${this.timeoutMs} ms.`
+                    : signal?.reason?.name === 'TimeoutError' ? 'Ollama request timed out while contacting the local server.'
+                        : 'Ollama request cancelled.');
 			}
             if (error instanceof TypeError) {
                 throw new Error(`Cannot reach Ollama at ${url.origin}. Start Ollama and retry. If VS Code runs in WSL, SSH, or a container, set localCopilot.ollamaBaseUrl to an address reachable from that extension host.`);
