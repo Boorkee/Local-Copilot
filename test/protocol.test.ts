@@ -26,6 +26,7 @@ describe('typed webview protocol', () => {
 
     it('rejects invalid messages and forged review actions', () => {
         for (const value of [null, [], 'sendMessage', { type: 'unknown' },
+            { type: 'delegate', chatModel: 'small', codeModel: 'large', task: 'edit', prompt: 'edit' },
             { type: 'sendMessage', prompt: 'hello', model: 'coder', mode: 'admin' },
             { type: 'sendMessage', prompt: 'a'.repeat(50_001), model: 'coder' },
             { type: 'sendMessage', prompt: 'hello', model: 'coder', agentId: '../outside' },

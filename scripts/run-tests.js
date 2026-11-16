@@ -1,15 +1,17 @@
-// Runs every compiled test file. Node 20 cannot expand globs in `node --test`, so the files are listed here.
+// Run tests represented in source, even if a deleted test left a stale compiled file behind.
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const directory = path.join(__dirname, '..', 'out-test', 'test');
-const files = fs.existsSync(directory)
-	? fs.readdirSync(directory).filter(name => name.endsWith('.test.js')).sort().map(name => path.join(directory, name))
-	: [];
+const sourceDirectory = path.join(__dirname, '..', 'test');
+const files = fs.readdirSync(sourceDirectory)
+	.filter(name => name.endsWith('.test.ts'))
+	.sort()
+	.map(name => path.join(directory, name.replace(/\.ts$/, '.js')));
 
-if (files.length === 0) {
-	console.error(`No compiled test files found in ${directory}.`);
+if (files.length === 0 || files.some(file => !fs.existsSync(file))) {
+	console.error(`Missing compiled test files in ${directory}. Run the test TypeScript build first.`);
 	process.exit(1);
 }
 

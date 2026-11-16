@@ -13,7 +13,6 @@ export type WebviewMessage =
     | { type: 'openDiff'; id: string }
     | { type: 'openLocation'; path: string; line?: number }
     | { type: 'openExternal'; url: string }
-    | { type: 'delegate'; chatModel: string; codeModel: string; task: string; prompt: string }
     | { type: 'sendMessage'; model: string; codeModel?: string; agentId?: string; prompt: string; mode?: 'agent' | 'chat' | 'plan' }
     | { type: 'applyCode' | 'copyCode'; code: string };
 
@@ -73,10 +72,6 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
                 if ((url.protocol === 'https:' || url.protocol === 'http:') && url.hostname)
                     return { type: value.type, url: value.url };
             } catch { /* Invalid URLs are not opened by the host. */ }
-            return;
-        case 'delegate':
-            if (string(value.chatModel, 256) && string(value.codeModel, 256) && string(value.task, 50_000) && string(value.prompt, 50_000))
-                return { type: value.type, chatModel: value.chatModel, codeModel: value.codeModel, task: value.task, prompt: value.prompt };
             return;
         case 'sendMessage':
             if (!string(value.model, 256) || !string(value.prompt, 50_000) ||

@@ -8,7 +8,6 @@ import { fileReview, ReviewQueue } from './reviewQueue';
 import { createChatViewHtml } from './chatViewHtml';
 import { Chat, ChatStore, TranscriptEntry } from './chatStore';
 import { replaceEditorText } from './editorActions';
-import { delegateCodingTask } from './orchestrator';
 import { ChatMessage, OllamaClient } from './ollamaClient';
 import { chooseModel, ModelCatalogEntry, runWithModelFallback } from './modelRouter';
 import { OpenDocuments, READ_ONLY_TOOLS, WorkspaceTools, WriteProposal } from './workspaceTools';
@@ -456,41 +455,6 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                             history: [{ role: 'user', content: effectivePrompt }, { role: 'assistant', content }]
                         };
                     });
-					break;
-				}
-				case 'delegate': {
-					const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-					if (!root) {
-						throw new Error('Open a workspace folder before delegating a coding task.');
-					}
-					const task = message.task.trim();
-					const chatModel = message.chatModel.trim();
-					const codeModel = message.codeModel.trim();
-					if (!task || !chatModel || !codeModel) {
-						throw new Error('Choose a chat model and a code model, and describe the task.');
-					}
-					await this.runTurn(message.prompt, async chat => {
-						const attachmentLabels = this.attachments.map(item => item.label);
-						const effectiveTask = task + this.takeAttachedContext();
-						const result = await delegateCodingTask({
-							client: this.client,
-							chatModel,
-							codeModel,
-							task,
-							codeTask: effectiveTask,
-							history: chat.history,
-							tools: this.createTools(root),
-                            signal: this.taskController!.signal,
-							onProgress: text => this.setStatus(text)
-						});
-						return {
-							transcript: [
-								{ role: 'user', content: message.prompt, attachments: attachmentLabels },
-								{ role: 'assistant', content: result.update, changes: result.changes.length ? result.changes : undefined }
-							],
-							history: result.historyAdditions
-						};
-					});
 					break;
 				}
 				case 'applyCode':
