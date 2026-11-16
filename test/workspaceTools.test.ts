@@ -112,8 +112,13 @@ describe('WorkspaceTools', () => {
 	it('skips node_modules when listing', async () => {
 		const tools = new WorkspaceTools(root);
 		await tools.execute('write_file', { path: 'node_modules/pkg/index.js', content: 'x' });
+		await tools.execute('write_file', { path: 'graphify-out/GRAPH_REPORT.md', content: 'graph needle' });
 
 		assert.doesNotMatch(await tools.execute('list_files', {}), /node_modules/);
+		assert.doesNotMatch(await tools.execute('list_files', {}), /graphify-out/);
+		assert.equal(await tools.execute('read_file', { path: 'graphify-out/GRAPH_REPORT.md' }), 'graph needle');
+		const search = JSON.parse(await tools.execute('search_workspace', { query: 'graph needle' }));
+		assert.equal(search.matches.length, 0);
 	});
 
 	it('reports invalid arguments and unknown tools instead of throwing', async () => {

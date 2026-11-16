@@ -39,7 +39,7 @@ const MAX_LIST_ENTRIES = 500;
 const MAX_SEARCH_BYTES = 3_000_000;
 const MAX_RANGE_BYTES = 20_000;
 const execFileAsync = promisify(execFile);
-const SKIPPED_DIRECTORIES = new Set(['node_modules', '.git', 'out', 'out-test']);
+const SKIPPED_DIRECTORIES = new Set(['node_modules', '.git', 'out', 'out-test', 'graphify-out', 'test-results', 'coverage', 'dist']);
 
 export const workspaceToolDefinitions: ToolDefinition[] = [
     { type: 'function', function: { name: 'run_command', description: 'Run a shell command, build, or test in the workspace. Always requires explicit user approval. Commands run in Windows PowerShell on Windows and /bin/sh elsewhere. Use noninteractive commands.', parameters: { type: 'object', properties: { command: { type: 'string' }, cwd: { type: 'string', description: 'Workspace-relative directory; defaults to root.' } }, required: ['command'] } } },

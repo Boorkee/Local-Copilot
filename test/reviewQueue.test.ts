@@ -14,6 +14,17 @@ describe('inline reviews', () => {
         assert.equal(review.removed, 1);
         assert.ok(review.lines?.some(line => line.kind === 'add' && line.text === '<img>'));
     });
+    it('caps large inline previews without losing change counts', () => {
+        const before = Array.from({ length: 400 }, (_, i) => `before ${i}`).join('\n') + '\n';
+        const after = Array.from({ length: 400 }, (_, i) => `after ${i}`).join('\n') + '\n';
+        const review = fileReview('write', 'large.ts', before, after);
+        assert.equal(review.added, 400);
+        assert.equal(review.removed, 400);
+        assert.ok((review.lines?.length ?? 0) <= 121);
+        assert.ok(review.lines?.some(line => line.kind === 'remove'));
+        assert.ok(review.lines?.some(line => line.kind === 'add'));
+        assert.ok(review.lines?.some(line => /Open full diff/.test(line.text)));
+    });
     it('rejects stale decisions and cancels pending approvals', async () => {
         const queue = new ReviewQueue(() => {});
         const first = queue.request({ kind: 'command', title: 'npm test' });

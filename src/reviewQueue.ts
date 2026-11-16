@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { diffLines } from 'diff';
 
+const MAX_INLINE_LINES = 120;
+
 export type ReviewCard = {
     id: string;
     kind: 'write' | 'delete' | 'command';
@@ -16,6 +18,8 @@ export function fileReview(kind: 'write' | 'delete', file: string, before: strin
     if (!parts) throw new Error('This diff is too complex to review inline. Split the edit into smaller changes.');
     let added = 0, removed = 0;
     const lines: NonNullable<ReviewCard['lines']> = [];
+    const tail: NonNullable<ReviewCard['lines']> = [];
+    let visibleCount = 0;
     for (const part of parts) {
         if (part.added) added += part.count ?? 0;
         if (part.removed) removed += part.count ?? 0;
@@ -24,9 +28,19 @@ export function fileReview(kind: 'write' | 'delete', file: string, before: strin
         // Show all changed lines and limited surrounding context for large files.
         const visible = !part.added && !part.removed && rows.length > 6
             ? [...rows.slice(0, 3), `… ${rows.length - 6} unchanged lines …`, ...rows.slice(-3)] : rows;
-        for (const text of visible) lines.push({ kind: part.added ? 'add' : part.removed ? 'remove' : 'context', text });
+        for (const text of visible) {
+            const entry = { kind: part.added ? 'add' as const : part.removed ? 'remove' as const : 'context' as const, text };
+            visibleCount++;
+            if (lines.length < MAX_INLINE_LINES / 2) lines.push(entry);
+            else {
+                if (tail.length === MAX_INLINE_LINES / 2) tail.shift();
+                tail.push(entry);
+            }
+        }
     }
-    return { kind, title: file, added, removed, lines };
+    if (visibleCount > MAX_INLINE_LINES) lines.push({ kind: 'context',
+        text: `… ${visibleCount - MAX_INLINE_LINES} preview lines omitted. Open full diff to review everything.` });
+    return { kind, title: file, added, removed, lines: [...lines, ...tail] };
 }
 
 /** The host owns approvals; stale or forged IDs cannot approve another action. */
