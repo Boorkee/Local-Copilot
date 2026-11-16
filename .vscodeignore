@@ -13,3 +13,5 @@ webview/**
 playwright.config.cjs
 test-results/**
 playwright-report/**
+graphify-out/**
+coverage/**
