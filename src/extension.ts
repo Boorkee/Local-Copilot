@@ -7,9 +7,10 @@ import { runCommand } from './commandRunner';
 import { fileReview, ReviewQueue } from './reviewQueue';
 import { createChatViewHtml } from './chatViewHtml';
 import { Chat, ChatStore, TranscriptEntry } from './chatStore';
+import { recentContext } from './conversationContext';
 import { replaceEditorText } from './editorActions';
 import { ChatMessage, OllamaClient } from './ollamaClient';
-import { chooseModel, ModelCatalogEntry, runWithModelFallback } from './modelRouter';
+import { chooseModel, isAutoMode, ModelCatalogEntry, runWithModelFallback } from './modelRouter';
 import { OpenDocuments, READ_ONLY_TOOLS, WorkspaceTools, WriteProposal } from './workspaceTools';
 import { HostEvent, parseWebviewMessage, WebviewMessage } from './protocol';
 import { listProjectAgents, loadProjectAgent } from './customAgents';
@@ -76,6 +77,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private modelRefresh = 0;
     private modelCatalog: ModelCatalogEntry[] = [];
     private modelRefreshPending?: Promise<void>;
+    private capabilityRefreshPending?: Promise<void>;
     private readonly diffPreviews = new Map<string, { before: string; after: string }>();
     private attachments: Array<{ id: string; label: string; content: string }> = [];
 
@@ -408,6 +410,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                         this.setStatus('Choosing local model…');
                         await waitForModelRefresh(this.modelRefreshPending ??
                             (this.modelCatalog.length ? Promise.resolve() : this.refreshModels()), this.taskController!.signal);
+                        if (agentMode && isAutoMode(model) && this.capabilityRefreshPending) {
+                            this.setStatus('Checking local model tool support…');
+                            await waitForModelRefresh(this.capabilityRefreshPending, this.taskController!.signal);
+                        }
                         const choice = chooseModel({ selected: model, mode: message.mode ?? 'agent', prompt,
                             hasAttachment: this.attachments.length > 0, historyCount: chat.history.length, catalog: this.modelCatalog });
                         const taskId = this.taskId!;
@@ -430,13 +436,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                                     this.addDelta(chat.id, taskId, text);
                                 };
                                 return tools
-                                    ? (await runAgent({ client, model: selectedModel, task: effectivePrompt, history: chat.history.slice(-20), tools,
+                                    ? (await runAgent({ client, model: selectedModel, task: effectivePrompt, history: recentContext(chat.history), tools,
                                         mode: planMode ? 'plan' : 'act', signal,
                                         customInstructions: projectAgent?.instructions,
                                         onProgress: text => this.setStatus(text),
                                         onDelta,
                                         onToolActivity: (stepId, tool, status) => { markStarted(); this.recordTool(chat.id, taskId, stepId, tool, status); } })).summary
-                                    : await client.chat(selectedModel, effectivePrompt, [...chat.history],
+                                    : await client.chat(selectedModel, effectivePrompt, recentContext(chat.history),
                                         { signal, onDelta });
                             }, (name, reason) => {
                                 usedModel = { name, label: choice.label, reason };
@@ -584,32 +590,43 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private async loadModels(): Promise<void> {
         const refresh = ++this.modelRefresh;
         const client = this.client;
+        this.capabilityRefreshPending = undefined;
         this.connection = 'loading';
         this.connectionError = '';
         this.post({ type: 'connection', state: 'loading' });
         try {
-            const models = await client.listModels();
+            const models = await client.listModels(AbortSignal.timeout(8000));
             if (refresh !== this.modelRefresh || client !== this.client) return;
             this.connection = models.length ? 'ready' : 'empty';
             this.connectionError = models.length ? '' : 'Ollama is connected but has no models. Pull a tool-capable coding model, then retry.';
             const names = models.map(model => model.name).filter(Boolean);
-            this.modelCatalog = models.map(model => ({ ...model, capability: 'unknown' }));
+            const capabilities: Record<string, ModelCatalogEntry['capability']> = {};
+            for (const name of names) capabilities[name] = client.cachedCapability(name);
+            this.modelCatalog = models.map(model => ({ ...model, capability: capabilities[model.name] }));
             const defaultModel = vscode.workspace.getConfiguration('localCopilot').get<string>('defaultModel', 'auto:balanced');
             const defaultCodeModel = vscode.workspace.getConfiguration('localCopilot').get<string>('codeModel', 'auto:balanced');
-            this.post({ type: 'models', models: names, defaultModel, defaultCodeModel });
+            this.post({ type: 'models', models: names, defaultModel, defaultCodeModel, capabilities });
             this.post({ type: 'connection', state: this.connection, text: this.connectionError });
-            const capabilities: Record<string, ModelCatalogEntry['capability']> = {};
-            let next = 0;
-            await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
-                while (next < names.length) {
-                    const name = names[next++];
-                    capabilities[name] = await client.inspectModel(name).catch(() => 'unknown' as const);
-                }
-            }));
-            if (refresh === this.modelRefresh && client === this.client) {
+            // Model metadata is optional for Chat/Manual. Bound the background inspection so it cannot stall turns.
+            const inspection = (async () => {
+                const signal = AbortSignal.timeout(8000);
+                let next = 0;
+                await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
+                    while (next < names.length && !signal.aborted) {
+                        const name = names[next++];
+                        capabilities[name] = await client.inspectModel(name, signal).catch(() => 'unknown' as const);
+                    }
+                }));
+                if (refresh !== this.modelRefresh || client !== this.client) return;
                 this.modelCatalog = models.map(model => ({ ...model, capability: capabilities[model.name] ?? 'unknown' }));
                 this.post({ type: 'models', models: names, defaultModel, defaultCodeModel, capabilities });
-            }
+            })().catch(() => {
+                // Discovery is best effort; individual model failures remain unknown.
+            });
+            this.capabilityRefreshPending = inspection;
+            void inspection.then(() => {
+                if (this.capabilityRefreshPending === inspection) this.capabilityRefreshPending = undefined;
+            });
         } catch (error) {
             if (refresh !== this.modelRefresh || client !== this.client) return;
             this.modelCatalog = [];

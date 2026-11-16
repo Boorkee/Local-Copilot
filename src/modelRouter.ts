@@ -28,19 +28,17 @@ export function parameterCount(value: string | undefined): number | undefined {
     return Number.isFinite(result) && result > 0 ? result : undefined;
 }
 
-function compareSize(a: ModelCatalogEntry, b: ModelCatalogEntry): number {
+function sizeRank(model: ModelCatalogEntry): number | undefined {
     // Ollama advertises parameter counts; disk size is a secondary proxy when missing.
-    const aParams = parameterCount(a.details?.parameter_size);
-    const bParams = parameterCount(b.details?.parameter_size);
-    const aSize = a.size && Number.isFinite(a.size) && a.size > 0 ? a.size : undefined;
-    const bSize = b.size && Number.isFinite(b.size) && b.size > 0 ? b.size : undefined;
-    // Single sortable unit avoids inconsistent comparisons across mixed metadata.
-    // Roughly two parameters per byte of quantized weights when only disk size is known.
-    const aRank = aParams ?? (aSize === undefined ? undefined : aSize * 2);
-    const bRank = bParams ?? (bSize === undefined ? undefined : bSize * 2);
+    const parameters = parameterCount(model.details?.parameter_size);
+    const disk = model.size && Number.isFinite(model.size) && model.size > 0 ? model.size : undefined;
+    return parameters ?? (disk === undefined ? undefined : disk * 2);
+}
+
+function compareSize(a: ModelCatalogEntry, b: ModelCatalogEntry): number {
+    const aRank = sizeRank(a);
+    const bRank = sizeRank(b);
     if (aRank !== undefined && bRank !== undefined && aRank !== bRank) return aRank - bRank;
-    if (aRank !== undefined && bRank === undefined) return -1;
-    if (aRank === undefined && bRank !== undefined) return 1;
     return a.name.localeCompare(b.name);
 }
 
@@ -77,23 +75,28 @@ export function chooseModel(args: {
     }
 
     // Auto requires confirmed tool support. Unknown capability is not permission to try tools.
-    const eligible = installed.filter(item => item.capability !== 'unsupported' && (!requiresTools || item.capability === 'tools')).sort(compareSize);
+    const eligible = installed.filter(item => item.capability !== 'unsupported' && (!requiresTools || item.capability === 'tools'));
     if (!eligible.length) throw new Error(requiresTools
         ? 'Auto needs a tool-capable model for Agent or Plan mode. Refresh models or choose Chat mode.'
         : 'Auto could not find an installed model.');
 
+    // Unknown size must not masquerade as either the smallest or the largest model.
+    const measured = eligible.filter(item => sizeRank(item) !== undefined).sort(compareSize);
+    const unmeasured = eligible.filter(item => sizeRank(item) === undefined).sort((a, b) => a.name.localeCompare(b.name));
+    const ranked = measured.length ? measured : unmeasured;
     const complexity = taskComplexity(prompt, mode, hasAttachment, historyCount);
     const tier = selected === 'auto:fast' ? 'Fast' : selected === 'auto:quality' ? 'Quality' : 'Balanced';
     const index = selected === 'auto:fast' ? 0
-        : selected === 'auto:quality' || complexity === 'involved' ? eligible.length - 1
-        : mode === 'chat' ? 0 : Math.floor((eligible.length - 1) / 2);
-    const chosen = eligible[index];
-    const candidates = [chosen, ...eligible.filter(item => item !== chosen).sort((a, b) => {
-        const aIndex = eligible.indexOf(a);
-        const bIndex = eligible.indexOf(b);
+        : selected === 'auto:quality' || complexity === 'involved' ? ranked.length - 1
+        : mode === 'chat' ? 0 : Math.floor((ranked.length - 1) / 2);
+    const chosen = ranked[index];
+    const candidates = [chosen, ...ranked.filter(item => item !== chosen).sort((a, b) => {
+        const aIndex = ranked.indexOf(a);
+        const bIndex = ranked.indexOf(b);
         return Math.abs(aIndex - index) - Math.abs(bIndex - index) || aIndex - bIndex;
-    })].map(item => item.name);
-    const why = selected === 'auto:fast' ? 'prioritizes the smallest installed model'
+    }), ...(measured.length ? unmeasured : [])].map(item => item.name);
+    const why = !measured.length ? 'uses name order because model sizes are unavailable'
+        : selected === 'auto:fast' ? 'prioritizes the smallest installed model'
         : selected === 'auto:quality' ? 'prioritizes the largest installed model'
             : complexity === 'involved' ? 'uses a larger model for an involved request'
                 : 'uses a smaller model for a quick request';

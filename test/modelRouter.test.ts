@@ -60,7 +60,8 @@ describe('local model routing', () => {
             { name: 'b', size: 50, capability: 'tools' }
         ];
         assert.equal(choose('auto:fast', 'agent', 'hi', older).model, 'b');
-        assert.equal(choose('auto:quality', 'agent', 'hi', older).model, 'z');
+        assert.equal(choose('auto:quality', 'agent', 'hi', older).model, 'a');
+        assert.deepEqual(choose('auto:quality', 'agent', 'hi', older).candidates, ['a', 'b', 'z']);
         assert.equal(choose('auto:balanced', 'chat', 'hi', older).model, 'b');
 		const mixed: ModelCatalogEntry[] = [
 			{ name: 'quantized-large', details: { parameter_size: '14B' }, size: 3_000_000_000, capability: 'tools' },
@@ -68,6 +69,8 @@ describe('local model routing', () => {
 			{ name: 'unknown-count', size: 4_000_000_000, capability: 'tools' }
 		];
 		assert.equal(choose('auto:quality', 'chat', 'hi', mixed).model, 'quantized-large');
+        const allUnknown: ModelCatalogEntry[] = [{ name: 'z', capability: 'tools' }, { name: 'a', capability: 'tools' }];
+        assert.match(choose('auto:quality', 'agent', 'hi', allUnknown).reason, /sizes are unavailable/);
     });
 
     it('only retries model-load failures rather than arbitrary tool and user errors', () => {
