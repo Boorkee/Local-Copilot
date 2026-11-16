@@ -44,8 +44,9 @@ function object(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function validHistory(value: unknown): value is ChatMessage {
-    return object(value) && (value.role === 'user' || value.role === 'assistant') && typeof value.content === 'string';
+function cleanHistory(value: unknown): ChatMessage | undefined {
+    if (!object(value) || (value.role !== 'user' && value.role !== 'assistant') || typeof value.content !== 'string') return;
+    return { role: value.role, content: value.content };
 }
 
 function cleanTranscript(value: unknown): TranscriptEntry | undefined {
@@ -82,13 +83,13 @@ export class ChatStore {
 		const valid = Array.isArray(saved) ? saved.filter(ChatStore.isChat) : [];
 		this.chats = valid.slice(-MAX_CHATS).map(chat => ({
 			...chat,
-			history: chat.history.filter(validHistory),
+			history: chat.history.map(cleanHistory).filter((entry): entry is ChatMessage => entry !== undefined),
 			transcript: chat.transcript.map(cleanTranscript).filter((entry): entry is TranscriptEntry => entry !== undefined)
 		}));
 		this.activeId = storage.get<string>(ACTIVE_KEY);
         let recovered = Array.isArray(saved) && (valid.length !== saved.length || valid.length !== this.chats.length ||
-            valid.slice(-MAX_CHATS).some((chat, i) => chat.history.length !== this.chats[i].history.length ||
-                chat.transcript.length !== this.chats[i].transcript.length));
+            valid.slice(-MAX_CHATS).some((chat, i) => JSON.stringify(chat.history) !== JSON.stringify(this.chats[i].history) ||
+                JSON.stringify(chat.transcript) !== JSON.stringify(this.chats[i].transcript)));
         for (const chat of this.chats) {
             if (!chat.inFlight) continue;
             if (typeof chat.inFlight.prompt !== 'string' || typeof chat.inFlight.id !== 'string') {

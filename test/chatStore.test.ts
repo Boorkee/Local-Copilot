@@ -155,7 +155,7 @@ describe('ChatStore', () => {
 	it('recovers valid messages when saved transcript metadata is corrupt', () => {
 		const storage = memoryStorage({ 'localCopilot.activeChat': 'saved', 'localCopilot.chats': [{
 			id: 'saved', title: 'saved', createdAt: 1, updatedAt: 2,
-			history: [null, { role: 'user', content: 'keep this' }, { role: 'system', content: 'invalid' }],
+			history: [null, { role: 'user', content: 'keep this', tool_calls: [{ function: { name: 'hidden' } }] }, { role: 'system', content: 'invalid' }],
 			transcript: [null, { role: 'assistant', content: 'safe reply', steps: [null, { id: 'ok', summary: 'read', status: 'done' }],
 				model: 'invalid', attachments: ['source.ts', null] }]
 		}] });
@@ -164,6 +164,8 @@ describe('ChatStore', () => {
 		assert.deepEqual(store.active().transcript, [{ role: 'assistant', content: 'safe reply',
 			attachments: ['source.ts'], steps: [{ id: 'ok', summary: 'read', status: 'done' }] }]);
 		const reopened = new ChatStore(storage, clock());
-		assert.equal(reopened.active().transcript.length, 1);
+		assert.deepEqual(reopened.active().history, [{ role: 'user', content: 'keep this' }]);
+		assert.deepEqual(reopened.active().transcript, store.active().transcript);
+		assert.deepEqual((storage.data['localCopilot.chats'] as Chat[])[0].history, [{ role: 'user', content: 'keep this' }]);
 	});
 });
