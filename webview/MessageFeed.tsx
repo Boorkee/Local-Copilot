@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { isValidElement } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -11,6 +11,7 @@ type Step = NonNullable<TranscriptEntry['steps']>[number];
 type LiveTask = { taskId: string; sessionId: string; content: string; steps: Step[]; model?: TranscriptEntry['model'] };
 
 const destination = document.getElementById('messages')!;
+const markdownPlugins = [remarkGfm];
 
 function safeUrl(url: string): string {
     if (/^https?:\/\/[^\s]+$/i.test(url)) return url;
@@ -41,7 +42,7 @@ function CodeBlock({ children }: { children: ReactNode }) {
 }
 
 function BasicMarkdown({ content }: { content: string }) {
-    return <div className="markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={safeUrl} components={{
+    return <div className="markdown"><Markdown remarkPlugins={markdownPlugins} skipHtml urlTransform={safeUrl} components={{
         img: () => null, // No passive network requests from model-generated image URLs.
         pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
         a: ({ href, children }) => href && safeUrl(href)
@@ -51,8 +52,15 @@ function BasicMarkdown({ content }: { content: string }) {
 }
 
 function ToolSteps({ steps }: { steps: Step[] }) {
+    const details = useRef<HTMLDetailsElement>(null);
+    const previouslyRunning = useRef(false);
+    const running = steps.some(step => step.status === 'started');
+    useEffect(() => {
+        if (running && !previouslyRunning.current && details.current) details.current.open = true;
+        previouslyRunning.current = running;
+    }, [running]);
     if (!steps.length) return null;
-    return <details className="task-steps" open={steps.some(step => step.status === 'started')}>
+    return <details ref={details} className="task-steps">
         <summary>Agent activity · {steps.length} step{steps.length === 1 ? '' : 's'}</summary>
         <ol>{steps.map(step => <li key={step.id} className={`step-${step.status}`}>
             <span>{step.summary}</span><span>{step.status === 'started' ? 'running' : step.status === 'done' ? 'done' : 'failed'}</span>
@@ -60,7 +68,7 @@ function ToolSteps({ steps }: { steps: Step[] }) {
     </details>;
 }
 
-function Message({ entry, pending, status }: { entry: TranscriptEntry; pending?: boolean; status?: string }) {
+const Message = memo(function Message({ entry, pending, status }: { entry: TranscriptEntry; pending?: boolean; status?: string }) {
     return <article className={`message ${entry.role}`}>
         {entry.role === 'assistant' && <div className="head"><span className="avatar" aria-hidden="true">✦</span>Local Copilot
             {entry.agent && <span className="agent-pill" title={`Project agent: ${entry.agent.name}`}>◆ {entry.agent.name}</span>}
@@ -79,7 +87,7 @@ function Message({ entry, pending, status }: { entry: TranscriptEntry; pending?:
         {entry.changes && entry.changes.length > 0 && <div className="changes">{entry.changes.map((change, index) =>
             <div key={index}>{change.action === 'delete' ? 'Deleted ' : 'Changed '}{change.path}</div>)}</div>}
     </article>;
-}
+});
 
 function Welcome() {
     return <div className="empty">
