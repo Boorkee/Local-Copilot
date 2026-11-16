@@ -48,6 +48,7 @@ class ChatAccumulator {
     private content = '';
     private readonly calls: ToolCall[] = [];
     private readonly indexes = new Map<number, number>();
+    private readonly argumentLengths: number[] = [];
 
     add(value: OllamaChatResponse, onDelta?: (text: string) => void): void {
         if (value.error) throw new Error(`Ollama could not complete the chat: ${value.error}`);
@@ -77,6 +78,7 @@ class ChatAccumulator {
                 if (this.calls.length >= 100) throw new Error('Ollama returned too many tool calls.');
                 slot = this.calls.length;
                 this.calls.push({ function: { name: '', arguments: '' } });
+                this.argumentLengths.push(0);
                 if (index !== undefined) this.indexes.set(index, slot);
             }
             const current = this.calls[slot].function;
@@ -84,11 +86,17 @@ class ChatAccumulator {
                 current.name = part.name.startsWith(current.name) ? part.name : current.name + part.name;
             }
             if (typeof part.arguments === 'string') {
+                const length = (typeof current.arguments === 'string' ? this.argumentLengths[slot] : 0) + part.arguments.length;
+                if (length > 200_000) throw new Error('Ollama tool arguments exceed the size limit.');
+                this.argumentLengths[slot] = length;
                 current.arguments = typeof current.arguments === 'string' ? current.arguments + part.arguments : part.arguments;
             } else if (part.arguments !== undefined) {
-                current.arguments = { ...(typeof current.arguments === 'string' ? {} : current.arguments), ...(part.arguments as Record<string, unknown>) };
+                const combined = { ...(typeof current.arguments === 'string' ? {} : current.arguments), ...(part.arguments as Record<string, unknown>) };
+                const length = JSON.stringify(combined).length;
+                if (length > 200_000) throw new Error('Ollama tool arguments exceed the size limit.');
+                this.argumentLengths[slot] = length;
+                current.arguments = combined;
             }
-            if (JSON.stringify(current.arguments).length > 200_000) throw new Error('Ollama tool arguments exceed the size limit.');
         }
     }
 
@@ -97,7 +105,11 @@ class ChatAccumulator {
         for (const call of this.calls) {
             if (!call.function.name) throw new Error('Ollama returned an incomplete tool call.');
             if (typeof call.function.arguments === 'string') {
-                try { call.function.arguments = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>; }
+                try {
+                    const parsed: unknown = JSON.parse(call.function.arguments || '{}');
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid');
+                    call.function.arguments = parsed as Record<string, unknown>;
+                }
                 catch { throw new Error('Ollama returned invalid streamed tool arguments.'); }
             }
         }
@@ -120,8 +132,8 @@ export class OllamaClient {
 
 	cancelRequests(): void { for (const request of this.requests) request.abort(); }
 
-	async listModels(): Promise<OllamaModel[]> {
-		const result = await this.request<{ models?: OllamaModel[] }>('/api/tags');
+	async listModels(signal?: AbortSignal): Promise<OllamaModel[]> {
+		const result = await this.request<{ models?: OllamaModel[] }>('/api/tags', undefined, signal);
 		if (!Array.isArray(result.models)) {
 			throw new Error('Ollama returned an invalid model list.');
 		}
@@ -137,8 +149,8 @@ export class OllamaClient {
         return this.capabilities.get(model) ?? 'unknown';
     }
 
-    async inspectModel(model: string): Promise<'tools' | 'chat' | 'unknown' | 'unsupported'> {
-        const info = await this.request<{ capabilities?: unknown }>('/api/show', { model });
+    async inspectModel(model: string, signal?: AbortSignal): Promise<'tools' | 'chat' | 'unknown' | 'unsupported'> {
+        const info = await this.request<{ capabilities?: unknown }>('/api/show', { model }, signal);
         const capability = Array.isArray(info.capabilities) && info.capabilities.every(value => typeof value === 'string')
             ? info.capabilities.includes('tools') ? 'tools' : info.capabilities.includes('completion') ? 'chat'
                 : info.capabilities.includes('embedding') ? 'unsupported' : 'unknown'

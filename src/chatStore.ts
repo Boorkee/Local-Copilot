@@ -40,6 +40,33 @@ const ACTIVE_KEY = 'localCopilot.activeChat';
 export const MAX_CHATS = 50;
 const TITLE_LENGTH = 48;
 
+function object(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validHistory(value: unknown): value is ChatMessage {
+    return object(value) && (value.role === 'user' || value.role === 'assistant') && typeof value.content === 'string';
+}
+
+function cleanTranscript(value: unknown): TranscriptEntry | undefined {
+    if (!object(value) || (value.role !== 'user' && value.role !== 'assistant') || typeof value.content !== 'string') return;
+    const entry: TranscriptEntry = { role: value.role, content: value.content };
+    if (object(value.model) && typeof value.model.name === 'string' && typeof value.model.label === 'string' && typeof value.model.reason === 'string')
+        entry.model = { name: value.model.name, label: value.model.label, reason: value.model.reason };
+    if (object(value.agent) && typeof value.agent.id === 'string' && typeof value.agent.name === 'string')
+        entry.agent = { id: value.agent.id, name: value.agent.name };
+    if (Array.isArray(value.attachments))
+        entry.attachments = value.attachments.filter((item): item is string => typeof item === 'string');
+    if (Array.isArray(value.steps))
+        entry.steps = value.steps.filter((item): item is NonNullable<TranscriptEntry['steps']>[number] =>
+            object(item) && typeof item.id === 'string' && typeof item.summary === 'string' &&
+            (item.status === 'started' || item.status === 'done' || item.status === 'failed'));
+    if (Array.isArray(value.changes))
+        entry.changes = value.changes.filter((item): item is NonNullable<TranscriptEntry['changes']>[number] =>
+            object(item) && (item.action === 'write' || item.action === 'delete') && typeof item.path === 'string');
+    return entry;
+}
+
 function makeTitle(prompt: string): string {
 	const single = prompt.replace(/\s+/g, ' ').trim();
 	return single.length > TITLE_LENGTH ? `${single.slice(0, TITLE_LENGTH - 1)}…` : single || 'New chat';
@@ -52,9 +79,16 @@ export class ChatStore {
 
 	constructor(private readonly storage: Storage, private readonly now: () => number = Date.now) {
 		const saved = storage.get<Chat[]>(CHATS_KEY);
-		this.chats = Array.isArray(saved) ? saved.filter(ChatStore.isChat) : [];
+		const valid = Array.isArray(saved) ? saved.filter(ChatStore.isChat) : [];
+		this.chats = valid.slice(-MAX_CHATS).map(chat => ({
+			...chat,
+			history: chat.history.filter(validHistory),
+			transcript: chat.transcript.map(cleanTranscript).filter((entry): entry is TranscriptEntry => entry !== undefined)
+		}));
 		this.activeId = storage.get<string>(ACTIVE_KEY);
-        let recovered = false;
+        let recovered = Array.isArray(saved) && (valid.length !== saved.length || valid.length !== this.chats.length ||
+            valid.slice(-MAX_CHATS).some((chat, i) => chat.history.length !== this.chats[i].history.length ||
+                chat.transcript.length !== this.chats[i].transcript.length));
         for (const chat of this.chats) {
             if (!chat.inFlight) continue;
             if (typeof chat.inFlight.prompt !== 'string' || typeof chat.inFlight.id !== 'string') {
@@ -75,6 +109,7 @@ export class ChatStore {
 	private static isChat(value: unknown): value is Chat {
 		const chat = value as Chat;
 		return Boolean(chat) && typeof chat.id === 'string' && typeof chat.title === 'string'
+			&& Number.isFinite(chat.createdAt) && Number.isFinite(chat.updatedAt)
 			&& Array.isArray(chat.history) && Array.isArray(chat.transcript);
 	}
 

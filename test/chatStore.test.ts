@@ -151,4 +151,19 @@ describe('ChatStore', () => {
 		assert.ok(store.list().length <= MAX_CHATS);
 		assert.equal(store.list()[0].title, `chat ${MAX_CHATS + 4}`);
 	});
+
+	it('recovers valid messages when saved transcript metadata is corrupt', () => {
+		const storage = memoryStorage({ 'localCopilot.activeChat': 'saved', 'localCopilot.chats': [{
+			id: 'saved', title: 'saved', createdAt: 1, updatedAt: 2,
+			history: [null, { role: 'user', content: 'keep this' }, { role: 'system', content: 'invalid' }],
+			transcript: [null, { role: 'assistant', content: 'safe reply', steps: [null, { id: 'ok', summary: 'read', status: 'done' }],
+				model: 'invalid', attachments: ['source.ts', null] }]
+		}] });
+		const store = new ChatStore(storage, clock());
+		assert.deepEqual(store.active().history, [{ role: 'user', content: 'keep this' }]);
+		assert.deepEqual(store.active().transcript, [{ role: 'assistant', content: 'safe reply',
+			attachments: ['source.ts'], steps: [{ id: 'ok', summary: 'read', status: 'done' }] }]);
+		const reopened = new ChatStore(storage, clock());
+		assert.equal(reopened.active().transcript.length, 1);
+	});
 });

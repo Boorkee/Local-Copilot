@@ -185,6 +185,19 @@ describe('OllamaClient.chat and streaming', () => {
         assert.deepEqual(reply.tool_calls, [{ function: { name: 'search_workspace', arguments: { query: 'test' } } }]);
     });
 
+    it('assembles many small tool fragments without repeatedly serializing them', async () => {
+        const content = JSON.stringify({ content: 'a'.repeat(80_000) });
+        const events: string[] = [];
+        for (let index = 0; index < content.length; index += 100) {
+            events.push(JSON.stringify({ message: { tool_calls: [{ index: 0,
+                function: { name: 'write_file', arguments: content.slice(index, index + 100) } }] } }));
+        }
+        const { client } = createClient(async () => new Response(events.join('\n') + '\n',
+            { headers: { 'content-type': 'application/x-ndjson' } }));
+        const reply = await client.complete('coder', [{ role: 'user', content: 'write' }], []);
+        assert.equal((reply.tool_calls?.[0].function.arguments as { content: string }).content.length, 80_000);
+    });
+
     it('reports stream errors, invalid events, and incomplete tool calls', async () => {
         for (const [stream, expected] of [
             ['{"error":"model unloaded"}\n', /model unloaded/],
