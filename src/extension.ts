@@ -75,6 +75,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private connection: 'loading' | 'ready' | 'empty' | 'error' = 'loading';
     private connectionError = '';
     private modelRefresh = 0;
+    private agentRefresh = 0;
     private modelCatalog: ModelCatalogEntry[] = [];
     private modelRefreshPending?: Promise<void>;
     private capabilityRefreshPending?: Promise<void>;
@@ -568,15 +569,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
 
     private async refreshAgents(): Promise<void> {
+        const refresh = ++this.agentRefresh;
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root || !vscode.workspace.isTrusted) {
             this.post({ type: 'agents', agents: [], error: root ? 'Trust this workspace to use project agents.' : 'Open a project to use custom agents.' });
             return;
         }
         try {
-            this.post({ type: 'agents', agents: await listProjectAgents(root) });
+            const agents = await listProjectAgents(root);
+            if (refresh === this.agentRefresh) this.post({ type: 'agents', agents });
         } catch (error) {
-            this.post({ type: 'agents', agents: [], error: error instanceof Error ? error.message : String(error) });
+            if (refresh === this.agentRefresh)
+                this.post({ type: 'agents', agents: [], error: error instanceof Error ? error.message : String(error) });
         }
     }
 

@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 export function createChatViewHtml(effectsUri?: string): string {
 	const nonce = getNonce();
 	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
@@ -41,13 +43,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		textarea { box-sizing: border-box; display: block; width: 100%; height: 38px; min-height: 38px; max-height: 180px; padding: 8px 10px 4px; resize: none; border: 0; outline: 0; color: var(--vscode-input-foreground); background: transparent; font: inherit; }
 		textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
 		.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; padding: 2px 4px 4px 6px; }
-		.pick { position: relative; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; color: var(--vscode-descriptionForeground); font-size: var(--small); }
-		.pick::after { content: '▾'; position: absolute; right: 3px; font-size: 9px; pointer-events: none; }
-		.pick span { margin-right: 2px; }
 		[hidden] { display:none !important; }
-		select { appearance: none; -webkit-appearance: none; min-width: 0; max-width: 130px; padding: 1px 13px 1px 3px; border: 1px solid transparent; border-radius: 3px; color: var(--vscode-foreground); background: transparent; font: inherit; font-size: var(--small); text-overflow: ellipsis; cursor: pointer; }
-		select:hover { background: var(--vscode-toolbar-hoverBackground); }
-		select option { color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); }
 		.spacer { flex: 1 1 0; }
 		button { display: inline-flex; align-items: center; justify-content: center; font: inherit; cursor: pointer; }
 		button.icon { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; color: var(--vscode-icon-foreground); background: transparent; }
@@ -56,8 +52,9 @@ export function createChatViewHtml(effectsUri?: string): string {
 		button.send:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
 		button.link { padding: 0 4px; border: 0; border-radius: 3px; color: var(--vscode-textLink-foreground); background: transparent; font-size: var(--small); }
 		button.link:hover { background: var(--vscode-toolbar-hoverBackground); }
-		select:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+		button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 		button:disabled { opacity: 0.5; cursor: default; }
+		.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
         .brand { display:flex; align-items:center; gap:10px; padding:18px 16px; border-bottom:1px solid var(--vscode-widget-border, transparent); flex:none; }
         .brand-mark { display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--vscode-focusBorder); border-radius:10px; color:var(--vscode-textLink-foreground); font-weight:700; letter-spacing:-1px; }
@@ -220,7 +217,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 </head>
 <body>
 	<header class="brand"><span class="brand-mark">LC</span><div><strong>Local Copilot</strong><span>THINK · BUILD · ITERATE</span></div><span class="local-badge">OLLAMA</span></header>
-	<div id="messages" aria-live="polite"></div>
+	<div id="messages" aria-label="Conversation"></div>
+	<div id="announcements" class="sr-only" role="status" aria-live="polite"></div>
 	<div id="status" role="status"></div>
 	<div id="error" role="alert"></div>
 	<div class="composer">
@@ -267,6 +265,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 		const promptInput = document.getElementById('prompt');
 		const statusElement = document.getElementById('status');
 		const errorElement = document.getElementById('error');
+		const announcements = document.getElementById('announcements');
 		const sendButton = document.getElementById('send');
 			const attachmentsElement = document.getElementById('attachment-chips');
 		const savedState = vscode.getState() || {};
@@ -319,7 +318,8 @@ export function createChatViewHtml(effectsUri?: string): string {
 			const agentButton = document.getElementById('agent-trigger');
 			agentButton.hidden = agentModeSelect.value !== 'agent';
 			const currentAgent = projectAgents.find(agent => agent.id === activeAgentId);
-			agentButton.querySelector('.pick-value').textContent = currentAgent ? currentAgent.name : 'Built-in agent';
+			agentButton.querySelector('.pick-value').textContent = currentAgent ? currentAgent.name
+				: activeAgentId ? 'Agent unavailable' : 'Built-in agent';
 			const chosen = chatting ? modelSelect.value : codeModelSelect.value;
 			const automatic = chosen.startsWith('auto:');
 			const tier = chosen === 'auto:fast' ? 'Fast' : chosen === 'auto:quality' ? 'Quality' : 'Balanced';
@@ -393,12 +393,12 @@ export function createChatViewHtml(effectsUri?: string): string {
 			openTrigger = null;
 		}
 
-		function menuOption(label, description, checked, action, disabled = false) {
+		function menuOption(label, description, checked, action, disabled = false, command = false) {
 			const button = document.createElement('button');
 			button.type = 'button';
 			button.className = 'popover-option';
-			button.setAttribute('role', 'menuitemradio');
-			button.setAttribute('aria-checked', String(checked));
+			button.setAttribute('role', command ? 'menuitem' : 'menuitemradio');
+			if (!command) button.setAttribute('aria-checked', String(checked));
 			button.disabled = disabled;
 			const copy = document.createElement('span');
 			copy.className = 'option-copy';
@@ -448,7 +448,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 					activeAgentId = agent.id; vscode.setState({ ...vscode.getState(), agentId: activeAgentId });
 				});
 				if (projectAgentError) menuOption(projectAgentError, '', false, () => {}, true);
-				menuOption('Refresh project agents', 'From .local-copilot/agents/', false, () => vscode.postMessage({ type: 'refreshAgents' }));
+				menuOption('Refresh project agents', 'From .local-copilot/agents/', false, () => vscode.postMessage({ type: 'refreshAgents' }), false, true);
 			} else if (name === 'routing') {
 				caption.textContent = 'Model selection';
 				secondary.textContent = 'Auto or Manual';
@@ -475,12 +475,15 @@ export function createChatViewHtml(effectsUri?: string): string {
 					const filter = document.createElement('div');
 					filter.className = 'popover-filter';
 					filter.setAttribute('aria-label', 'Cannot pick a model in Auto mode');
+					pickerPopover.setAttribute('aria-describedby', 'auto-model-notice');
 					const message = document.createElement('span');
+					message.id = 'auto-model-notice';
 					message.textContent = "Can't pick a model in Auto mode";
 					filter.append(message);
 					pickerOptions.append(filter);
 				}
 			}
+			if (name !== 'models' || !auto) pickerPopover.removeAttribute('aria-describedby');
 			openMenu = name;
 			openTrigger = trigger;
 			trigger.setAttribute('aria-expanded', 'true');
@@ -506,6 +509,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 			if (window.copilot.recording || window.copilot.review || window.copilot.connection !== 'ready') return;
 			errorElement.textContent = '';
 			busy = true;
+			announcements.textContent = '';
 			vscode.postMessage({ type: 'sendMessage', model: modelSelect.value, codeModel: codeModelSelect.value,
 				prompt, mode: agentModeSelect.value, agentId: agentModeSelect.value === 'agent' && activeAgentId ? activeAgentId : undefined });
 			promptInput.value = '';
@@ -593,11 +597,14 @@ export function createChatViewHtml(effectsUri?: string): string {
 				closePicker();
 				projectAgents = Array.isArray(message.agents) ? message.agents : [];
 				projectAgentError = message.error || '';
-				if (activeAgentId && !projectAgents.some(agent => agent.id === activeAgentId)) {
+				if (!projectAgentError && activeAgentId && !projectAgents.some(agent => agent.id === activeAgentId)) {
 					activeAgentId = '';
 					vscode.setState({ ...vscode.getState(), agentId: '' });
 				}
 				render();
+			} else if (message.type === 'taskFinished') {
+				announcements.textContent = message.status === 'done' ? 'Response complete. Review it in the conversation.'
+					: message.status === 'cancelled' ? 'Task stopped.' : 'Task failed.';
 			} else if (message.type === 'state') {
                 window.copilot.review = message.review || null;
                 window.copilot.commandOutput = message.commandOutput || '';
@@ -627,12 +634,7 @@ export function createChatViewHtml(effectsUri?: string): string {
 }
 
 function getNonce(): string {
-	const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-	let nonce = '';
-	for (let index = 0; index < 32; index++) {
-		nonce += possible.charAt(Math.floor(Math.random() * possible.length));
-	}
-	return nonce;
+	return randomBytes(16).toString('hex');
 }
 
 function escapeAttribute(value: string): string {

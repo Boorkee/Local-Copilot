@@ -10,6 +10,7 @@ describe('createChatViewHtml', () => {
 		assert.ok(nonce);
 		assert.match(nonce, /^[A-Za-z0-9]{32}$/);
 		assert.ok(html.includes(`script-src 'nonce-${nonce}'`));
+		assert.notEqual(nonce, createChatViewHtml().match(/<script nonce="([^"]+)">/)?.[1]);
 	});
 
 	it('includes the message list, status/error areas, composer, and model pickers', () => {
@@ -75,6 +76,16 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /agentModeSelect\.addEventListener\('change'/);
 		assert.match(html, /event\.key === 'Escape'/);
 		assert.match(html, /menuOption\('Manual'/);
+		assert.match(html, /command \? 'menuitem' : 'menuitemradio'/);
+		assert.match(html, /!projectAgentError && activeAgentId/);
+	});
+
+	it('announces finished tasks without speaking every streamed token', () => {
+		const html = createChatViewHtml();
+		assert.match(html, /id="messages" aria-label="Conversation"/);
+		assert.doesNotMatch(html, /id="messages" aria-live=/);
+		assert.match(html, /id="announcements"[^>]*aria-live="polite"/);
+		assert.match(html, /message\.type === 'taskFinished'/);
 	});
 
 	it('leaves chat history to the extension host so it survives the view being moved', () => {
