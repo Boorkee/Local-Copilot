@@ -1,0 +1,15 @@
+{
+  "runs": [
+    {
+      "date": "2026-11-16T07:34:12.456648+00:00",
+      "files": 55,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "note": "Codex session semantic usage unavailable; AST local; no separate API calls",
+      "usage_measured": false
+    }
+  ],
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "usage_measured": false
+}

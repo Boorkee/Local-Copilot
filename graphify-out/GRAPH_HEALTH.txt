@@ -1,0 +1,41 @@
+[graphify] MultiDiGraph edge-collapse diagnostic
+input: <in-memory>
+input_stage: provided JSON (normal graph.json is post-build)
+effective_directed: <direct-call>
+nodes: 484
+unverified_code_nodes: 0
+raw_edges: 985
+valid_candidate_edges: 908
+missing_endpoint_edges: 0
+dangling_endpoint_edges: 0
+external_reference_edges: 77
+self_loop_edges: 0
+exact_duplicate_edges: 0
+directed_unique_endpoint_pairs: 862
+directed_same_endpoint_collapsed_edges: 46
+undirected_unique_endpoint_pairs: 862
+undirected_same_endpoint_collapsed_edges: 46
+same_endpoint_group_count: 30
+relation_variant_groups: 14
+source_file_variant_groups: 0
+source_location_variant_groups: 16
+context_variant_groups: 0
+post_build_graph_type: Graph
+post_build_edges: 939
+producer_suppression_sites: 12
+producer_suppression_examples:
+  - L1901 seen_ids arity=unknown
+  - L2596 seen_ids arity=unknown
+  - L2598 seen_doc_refs arity=unknown
+  - L3265 seen_ids arity=unknown
+  - L3412 seen_ids arity=unknown
+  - L5147 seen_keys arity=unknown
+  - L5333 seen_keys arity=unknown
+  - L10022 seen_ids arity=unknown
+examples:
+  - github_workflows_ci_test_steps -> github_workflows_ci_steps_name edges=6 relations=['contains'] locations=['L30', 'L32', 'L37', 'L39', 'L41', 'L45'] contexts=['']
+  - github_workflows_ci_release_steps -> github_workflows_ci_steps_name edges=5 relations=['contains'] locations=['L74', 'L76', 'L81', 'L83', 'L85'] contexts=['']
+  - github_workflows_ci_test_steps -> github_workflows_ci_steps_run edges=4 relations=['contains'] locations=['L38', 'L40', 'L44', 'L46'] contexts=['']
+  - github_workflows_ci_steps_with -> github_workflows_ci_with_node_version edges=3 relations=['contains'] locations=['L35', 'L55', 'L79'] contexts=['']
+  - github_workflows_ci_steps_with -> github_workflows_ci_with_cache edges=3 relations=['contains'] locations=['L36', 'L56', 'L80'] contexts=['']
+note: normal graph.json is post-build; raw producer loss must be measured earlier.

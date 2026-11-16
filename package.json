@@ -140,5 +140,8 @@
       "supported": "limited",
       "description": "Chat remains available; agent tools and commands require a trusted workspace."
     }
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }
