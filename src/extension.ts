@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { CONTEXT_CHARS, snapshotPath } from './contextSnapshot';
 import { VoiceInput } from './voiceInput';
 import * as vscode from 'vscode';
 import { runAgent } from './agent';
@@ -80,7 +81,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private modelRefreshPending?: Promise<void>;
     private capabilityRefreshPending?: Promise<void>;
     private readonly diffPreviews = new Map<string, { before: string; after: string }>();
-    private attachments: Array<{ id: string; label: string; content: string }> = [];
+    private pickingContext = false;
+    private attachments: Array<{ source?: string; id: string; label: string; content: string }> = [];
 
 	constructor(context: vscode.ExtensionContext) {
 		this.extensionUri = context.extensionUri;
@@ -175,6 +177,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 			this.stopTask();
+			if (this.store.active().id === event.item.chatId) this.clearAttachments();
 			this.store.delete(event.item.chatId);
 			refreshItems();
 			this.postState();
@@ -318,11 +321,59 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+    private remainingContext(): number {
+        return CONTEXT_CHARS - this.attachments.reduce((sum, item) => sum + item.content.length, 0);
+    }
+
+    private async pickContext(): Promise<void> {
+        if (this.busy || this.pickingContext) return;
+        if (!vscode.workspace.isTrusted) throw new Error('Trust the workspace before attaching context.');
+        const chatId = this.store.active().id;
+        this.pickingContext = true;
+        try {
+            let files = true;
+            let folders = true;
+            if (process.platform !== 'darwin' || vscode.env.remoteName) {
+                const kind = await vscode.window.showQuickPick(['Files', 'Folders'], { title: 'Add context' });
+                if (!kind) return;
+                files = kind === 'Files';
+                folders = !files;
+            }
+            const selected = await vscode.window.showOpenDialog({ canSelectFiles: files, canSelectFolders: folders,
+                canSelectMany: true, openLabel: 'Add to context' });
+            const skipped: string[] = [];
+            for (const uri of selected ?? []) {
+                if (this.store.active().id !== chatId) return;
+                if (this.attachments.some(item => item.source === uri.toString())) continue;
+                const budget = this.remainingContext();
+                const label = vscode.workspace.asRelativePath(uri, true);
+                if (budget <= 0 || (uri.scheme !== 'file' && uri.scheme !== 'vscode-remote')) {
+                    skipped.push(label);
+                    continue;
+                }
+                try {
+                    const snapshot = await snapshotPath(uri.fsPath, budget);
+                    if (this.store.active().id !== chatId) return;
+                    if (!snapshot.files) { skipped.push(label); continue; }
+                    const detail = snapshot.folder ? ' · ' + snapshot.files + (snapshot.files === 1 ? ' file' : ' files') : '';
+                    this.attachments.push({ id: randomUUID(), source: uri.toString(), content: snapshot.content,
+                        label: label + detail + (snapshot.partial ? ' · partial' : '') });
+                    this.postAttachments();
+                } catch { skipped.push(label); }
+            }
+            if (skipped.length) void vscode.window.showWarningMessage('Could not include in context: ' + skipped.join(', '));
+        } finally { this.pickingContext = false; }
+    }
+
 	private async handleMessage(message: WebviewMessage): Promise<void> {
 		try {
 			switch (message.type) {
+				case 'pickContext':
+                    await this.pickContext();
+                    break;
 				case 'attachEditor': {
-                    if (this.busy || this.attachments.length >= 3) throw new Error('Wait for the task or remove an attachment (maximum three).');
+                    if (this.pickingContext || this.busy) return;
+                    const chatId = this.store.active().id;
                     if (!vscode.workspace.isTrusted) throw new Error('Trust the workspace before attaching its code.');
                     const editor = vscode.window.activeTextEditor;
                     const folder = editor && vscode.workspace.getWorkspaceFolder(editor.document.uri);
@@ -334,10 +385,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (source.includes('\0')) throw new Error('Binary files cannot be attached.');
                     const relative = path.relative(root.uri.fsPath, editor.document.uri.fsPath).replace(/\\/g, '/');
                     await new WorkspaceTools(root.uri.fsPath).resolveWorkspaceFile(relative);
-                    const truncated = source.length > 6000;
+                    if (this.store.active().id !== chatId || this.busy || this.pickingContext) return;
+                    const limit = Math.min(6000, this.remainingContext());
+                    if (limit <= 0) throw new Error('Remove an attachment to make room for more context.');
+                    const truncated = source.length > limit;
                     const label = `${relative}${selected ? ' · selection' : ''}${truncated ? ' · excerpt' : ''}`;
                     if (!this.attachments.some(item => item.label === label))
-                        this.attachments.push({ id: randomUUID(), label, content: source.slice(0, 6000) });
+                        this.attachments.push({ id: randomUUID(), label, content: source.slice(0, limit) });
                     this.postAttachments();
                     break;
                 }
@@ -394,6 +448,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 					await this.refreshModels();
 					break;
 				case 'sendMessage': {
+                    if (this.pickingContext) throw new Error('Finish adding context before sending.');
 					const prompt = message.prompt.trim();
 					if (!prompt) {
 						throw new Error('Choose a model and enter a message before sending.');

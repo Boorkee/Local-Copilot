@@ -7,7 +7,7 @@ import { validAgentId, type ProjectAgentInfo } from './customAgents';
 export const PROTOCOL_VERSION = 1;
 
 export type WebviewMessage =
-    | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'refreshAgents' | 'stopTask' | 'openSettings' | 'attachEditor' }
+    | { type: 'ready' | 'startVoice' | 'stopVoice' | 'refreshModels' | 'refreshAgents' | 'stopTask' | 'openSettings' | 'attachEditor' | 'pickContext' }
     | { type: 'removeAttachment'; id: string }
     | { type: 'reviewDecision'; id: string; approved: boolean }
     | { type: 'openDiff'; id: string }
@@ -48,7 +48,7 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     if (!record(value) || typeof value.type !== 'string') return;
     switch (value.type) {
         case 'ready': case 'startVoice': case 'stopVoice': case 'refreshModels':
-        case 'refreshAgents': case 'stopTask': case 'openSettings': case 'attachEditor':
+        case 'refreshAgents': case 'stopTask': case 'openSettings': case 'attachEditor': case 'pickContext':
             return { type: value.type };
         case 'removeAttachment':
             if (string(value.id, 128) && value.id.length > 0) return { type: value.type, id: value.id };
