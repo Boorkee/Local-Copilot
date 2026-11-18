@@ -120,8 +120,8 @@ test('labels tool support and avoids chat-only agent models', async ({page}) => 
 });
 
 test('switches routing tiers by mode and shows the model used', async ({page}) => {
-  await page.locator('#routing-trigger').click();
-  await page.getByRole('menuitemradio',{name:/^Auto · Quality/}).click();
+  await page.locator('#model-trigger').click();
+  await page.getByRole('menuitemradio',{name:/^Quality/}).click();
   await expect(page.locator('#routeHint')).toContainText('Quality');
   await page.locator('#prompt').fill('Refactor this project');
   await page.locator('#send').click();
@@ -139,20 +139,22 @@ test('switches routing tiers by mode and shows the model used', async ({page}) =
   await expect(page.locator('#mode-trigger')).toContainText('Chat');
 });
 
-test('keeps model options visible but unavailable during auto mode', async ({page}) => {
-  await page.locator('#routing-trigger').click();
-  await page.getByRole('menuitemradio',{name:/^Auto · Balanced/}).click();
+test('chooses a model directly from Auto and switches back', async ({page}) => {
   await page.locator('#model-trigger').click();
-  await expect(page.locator('.popover-filter')).toContainText("Can't pick a model in Auto mode");
-  await expect(page.getByRole('menuitemradio',{name:/local-code/})).toBeDisabled();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#picker-popover')).not.toHaveClass(/open/);
-  await page.locator('#routing-trigger').click();
-  await page.getByRole('menuitemradio',{name:/^Manual/}).click();
+  await page.getByRole('menuitemradio',{name:/^Fast/}).click();
   await page.locator('#model-trigger').click();
-  await expect(page.locator('.popover-filter')).toHaveCount(0);
+  await expect(page.getByText('Models:', {exact:true})).toBeVisible();
   await page.getByRole('menuitemradio',{name:/local-chat/}).click();
   await expect(page.locator('#codeModel')).toHaveValue('local-chat');
+  await expect(page.locator('#model-trigger')).toContainText('local-chat');
+  await page.locator('#model-trigger').click();
+  await page.getByRole('menuitemradio',{name:'Auto',exact:true}).click();
+  await expect(page.locator('#codeModel')).toHaveValue('auto:balanced');
+});
+
+test('opens the file and folder picker inside the composer', async ({page}) => {
+  await page.locator('.composer').getByRole('button',{name:'Add files or folders'}).click();
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toEqual({type:'pickContext'});
 });
 
 test('selects project agents separately from Agent mode', async ({page}) => {

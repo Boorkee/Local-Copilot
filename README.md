@@ -12,7 +12,7 @@ It is for developers who want an IDE-integrated assistant while choosing where t
 - **Choose how models are selected.** Auto routing picks among models already installed in Ollama, or choose a specific model yourself. Agent and Plan need a model that supports Ollama tool calling.
 - **Review changes before they land.** File edits and deletions require your approval and can be inspected in VS Code's diff editor. Shell commands are shown for approval before execution.
 - **Keep project conversations handy.** Chats are saved in VS Code and can be revisited, renamed, or deleted.
-- **Bring relevant context into a prompt.** Attach the active editor or a selection, or let Agent inspect workspace files through its tools.
+- **Bring relevant context into a prompt.** Use **+** in the composer to attach files or folders. The paperclip attaches the active editor or its selection.
 - **Dictate prompts on supported Windows setups.** Voice input uses Windows speech recognition locally; typing is available on every supported platform.
 
 Local Copilot is designed to keep you in control: model selection and routing happen locally in the extension, and there is no cloud-model fallback or automatic model download. Workspace text included in a prompt is sent to the Ollama endpoint you configure. Agent shell commands run with your account's permissions and are **not sandboxed**, so review each command before approving it.
@@ -54,9 +54,11 @@ Open the project in VS Code and press **F5** to launch an Extension Development 
 
 Auto · Balanced is the default. Auto selects from models already installed on your Ollama server; it does not download models. To connect to a server other than the default `http://127.0.0.1:11434`, set `localCopilot.ollamaBaseUrl` in VS Code settings.
 
+The **+** picker accepts multiple selections. You can open it again to combine files and folders in the same message. A folder chip shows how many text files it includes. Each file contributes up to 6,000 characters, with 48,000 characters shared across attachments. A partial folder chip indicates that some content was skipped or shortened.
+
 ## How model selection works
 
-Select **Auto · Fast**, **Auto · Balanced**, or **Auto · Quality** to route each request among eligible installed models. The router uses prompt characteristics and Ollama-reported model sizes; it is a deterministic heuristic, not another AI call. Fast favors smaller models, Quality favors larger ones, and Balanced varies its choice with the request.
+Open the model picker and choose **Fast**, **Balanced**, or **Quality** under **Auto**. Selecting an installed model below the divider uses it directly. The router uses prompt characteristics and Ollama-reported model sizes; it is a deterministic heuristic, not another AI call. Fast favors smaller models, Quality favors larger ones, and Balanced varies its choice with the request.
 
 Auto Agent and Plan only select models whose tool-calling support is confirmed by Ollama. A manually selected model is used as chosen, but still needs tool support for Agent and Plan. The response header shows which model handled the request. If a model fails to load, Auto can try another eligible model only before it has produced output or used a tool.
 

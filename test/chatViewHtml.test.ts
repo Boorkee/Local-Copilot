@@ -68,14 +68,14 @@ describe('createChatViewHtml', () => {
 		assert.match(html, /type: 'sendMessage'/);
 	});
 
-	it('offers separate routing, model, and project-agent menus', () => {
+	it('groups Auto tiers and installed models in one picker', () => {
 		const html = createChatViewHtml();
-		for (const text of ['auto:balanced', 'auto:fast', 'auto:quality', 'routing-trigger', 'model-trigger',
-			'agent-trigger', 'mode-trigger', 'picker-popover', 'routeHint', "Can't pick a model in Auto mode", 'refreshAgents'])
+		for (const text of ['auto:balanced', 'auto:fast', 'auto:quality', 'model-trigger',
+			'agent-trigger', 'mode-trigger', 'picker-popover', 'routeHint', 'Models:', 'refreshAgents'])
 			assert.ok(html.includes(text));
 		assert.match(html, /agentModeSelect\.addEventListener\('change'/);
 		assert.match(html, /event\.key === 'Escape'/);
-		assert.match(html, /menuOption\('Manual'/);
+		assert.doesNotMatch(html, /routing-trigger|popover-filter/);
 		assert.match(html, /command \? 'menuitem' : 'menuitemradio'/);
 		assert.match(html, /!projectAgentError && activeAgentId/);
 	});
